@@ -1,127 +1,64 @@
-# Oniguruma JNI
+# Oniguruma Bindings
 
-[![Maven central version](https://img.shields.io/maven-central/v/me.zolotov.oniguruma/oniguruma-jni.svg)](https://search.maven.org/artifact/me.zolotov.oniguruma/oniguruma-jni)
+[![JNI Maven Central version](https://img.shields.io/maven-central/v/me.zolotov.oniguruma/oniguruma-jni.svg)](https://search.maven.org/artifact/me.zolotov.oniguruma/oniguruma-jni)
+[![FFM Maven Central version](https://img.shields.io/maven-central/v/me.zolotov.oniguruma/oniguruma-ffm.svg)](https://search.maven.org/artifact/me.zolotov.oniguruma/oniguruma-ffm)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/zolotov/oniguruma-bindings/build.yaml)](https://github.com/zolotov/oniguruma-bindings/actions/workflows/build.yaml)
 [![GitHub License](https://img.shields.io/github/license/zolotov/oniguruma-bindings)](https://github.com/zolotov/oniguruma-bindings/blob/main/LICENSE)
 
-A JNI wrapper for the Oniguruma regular expression library, with Rust implementation using the [onig](https://crates.io/crates/onig) crate.
-This library is primarily designed to support syntax highlighting in [IntelliJ](https://www.jetbrains.com/idea/)-based IDEs through the [`textmate-core`](https://github.com/JetBrains/intellij-community/tree/master/plugins/textmate/core) library.
+Java bindings for the Oniguruma regular expression library.
+This repository publishes a JNI backend backed by the [onig](https://crates.io/crates/onig) Rust crate and an FFM backend backed by the upstream C library.
+Both modules are primarily designed to support syntax highlighting in [IntelliJ](https://www.jetbrains.com/idea/)-based IDEs through the [`textmate-core`](https://github.com/JetBrains/intellij-community/tree/master/plugins/textmate/core) library.
 
-## Overview
+## Modules
 
-This project provides Java Native Interface (JNI) bindings for TextMate grammar pattern matching,
-implemented in Rust using the `onig` crate which provides the native bindings to the Oniguruma regular expression library.
+### `oniguruma-jni`
 
-## Installation
+A JNI wrapper implemented in Rust using the [`onig`](https://crates.io/crates/onig) crate.
 
-Add the following dependency to your project:
+- Maven coordinate: `me.zolotov.oniguruma:oniguruma-jni`
+- Java package: `me.zolotov.oniguruma.jni`
+- JPMS module: `me.zolotov.oniguruma.jni`
+- Documentation: [`oniguruma-jni/README.md`](./oniguruma-jni/README.md)
 
-```kotlin
-dependencies {
-    implementation("me.zolotov.oniguruma:oniguruma-jni:$version")
-}
+### `oniguruma-ffm`
+
+A Java Foreign Function & Memory wrapper backed by the upstream C library.
+
+- Maven coordinate: `me.zolotov.oniguruma:oniguruma-ffm`
+- Java package: `me.zolotov.oniguruma.ffm`
+- JPMS module: `me.zolotov.oniguruma.ffm`
+- Documentation: [`oniguruma-ffm/README.md`](./oniguruma-ffm/README.md)
+
+## Releases
+
+Each module now has its own release cadence:
+
+- `oniguruma-jni`: changelog in [`oniguruma-jni/CHANGELOG.md`](./oniguruma-jni/CHANGELOG.md), tags and GitHub releases as `oniguruma-jni-vX.Y.Z`
+- `oniguruma-ffm`: changelog in [`oniguruma-ffm/CHANGELOG.md`](./oniguruma-ffm/CHANGELOG.md), tags and GitHub releases as `oniguruma-ffm-vX.Y.Z`
+
+## Building
+
+Build all modules:
+
+```bash
+./gradlew build
 ```
 
-By default, the dependency resolves to the "fat" jar that bundles native libraries for all
-supported platforms as jar resources, ready to be loaded with `Oniguruma.createFromResources()`.
+Build a single module:
 
-### Slim jar
-
-If you don't want the native libraries of all platforms on your classpath (e.g. you ship
-platform-specific distributions or manage the native library yourself), request the "slim" jar
-instead by setting the `me.zolotov.oniguruma.packaging` attribute on the dependency:
-
-```kotlin
-dependencies {
-    implementation("me.zolotov.oniguruma:oniguruma-jni:$version") {
-        attributes {
-            attribute(Attribute.of("me.zolotov.oniguruma.packaging", String::class.java), "slim")
-        }
-    }
-}
+```bash
+./gradlew :oniguruma-jni:build
+./gradlew :oniguruma-ffm:build
 ```
 
-The slim jar contains no native libraries, so load the library from a file with
-`Oniguruma.createFromFile(path)`. The per-platform native libraries are published alongside the
-jars and can be resolved with the `me.zolotov.oniguruma.platform` attribute
-(`<os>-<arch>`, e.g. `macos-aarch64`, `linux-x86_64`, `windows-x86_64`):
+Run module benchmarks:
 
-```kotlin
-val onigurumaNativeBinding: Configuration by configurations.creating {
-    isCanBeConsumed = false
-    isTransitive = false
-    attributes {
-        attribute(Attribute.of("me.zolotov.oniguruma.platform", String::class.java), "macos-aarch64")
-    }
-}
-
-dependencies {
-    onigurumaNativeBinding("me.zolotov.oniguruma:oniguruma-jni:$version")
-}
+```bash
+./gradlew :oniguruma-jni:jmh
+./gradlew :oniguruma-ffm:jmh
 ```
 
-## Usage
-
-### Basic Setup
-
-```kotlin
-// Load the library from bundled resources
-// Note: This method has performance overhead during instantiation (unpacking a native part from jar)
-// and JVM shutdown (cleanup hook to remove the unpacked file)
-val oniguruma = Oniguruma.createFromResources()
-
-// Or load from a specific file path (preferred for better performance)
-val oniguruma = Oniguruma.createFromFile(Path.of("/path/to/library"))
-```
-
-### Pattern Matching
-
-```kotlin
-val oniguruma = Oniguruma.createFromResources()
-
-// Create pattern and string handles
-val pattern = "pattern".toByteArray()
-val text = "text to match".toByteArray()
-
-val textPtr = oniguruma.createString(text)
-try {
-    val regexPtr = oniguruma.createRegex(pattern)
-    try {
-        val result = oniguruma.match(
-            regexPtr = regexPtr,
-            textPtr = textPtr,
-            byteOffset = 0,
-            matchBeginPosition = true,
-            matchBeginString = false
-        )
-
-        // Process results
-        result?.let {
-            // Match found, process the integer array of positions
-            it.asSequence()?.windowed(size = 2, step = 2, partialWindows = false) { (startByteOffset, endByteOffset) ->
-
-            }
-        }
-    } finally {
-        // Clean up native regex
-        oniguruma.freeRegex(regexPtr)
-    }
-} finally {
-    // Clean up native string
-    oniguruma.freeString(textPtr)
-}
-```
-
-## Building from Source
-
-1. Clone the repository
-2. Ensure you have the following prerequisites:
-    - JDK 17 or later
-    - Rust toolchain
-3. Build the project using Gradle:
-   ```bash
-   ./gradlew :oniguruma-jni:build
-   ```
+The repository also contains an internal `benchmarks` project with shared JMH inputs and state.
 
 ## Contributing
 
