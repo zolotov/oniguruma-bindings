@@ -23,7 +23,7 @@ fun currentOs(): Os  {
     val os = System.getProperty("os.name").lowercase()
     return when {
         os.contains("win") -> Os.WINDOWS
-        os.contains("mac") -> Os.MACOS
+        os.contains("mac") || os.contains("darwin") -> Os.MACOS
         os.contains("nux") || os.contains("nix") || os.contains("aix") -> Os.LINUX
         else -> error("unsupported os '$os'")
     }
@@ -36,3 +36,22 @@ fun currentArch(): Arch = when (val arch = System.getProperty("os.arch").lowerca
 }
 
 fun currentPlatform(): Platform = Platform(currentOs(), currentArch())
+
+fun buildPlatformNativeTarget(platform: Platform): String {
+    val osPart = when (platform.os) {
+        Os.WINDOWS -> "pc-windows-msvc"
+        Os.MACOS -> "apple-darwin"
+        Os.LINUX -> "unknown-linux-gnu"
+    }
+    val archPart = when (platform.arch) {
+        Arch.aarch64 -> "aarch64"
+        Arch.x86_64 -> "x86_64"
+    }
+    return "$archPart-$osPart"
+}
+
+fun onigurumaLibraryName(platform: Platform): String = when (platform.os) {
+    Os.LINUX -> "libonig.so"
+    Os.MACOS -> "libonig.dylib"
+    Os.WINDOWS -> "onig.dll"
+}

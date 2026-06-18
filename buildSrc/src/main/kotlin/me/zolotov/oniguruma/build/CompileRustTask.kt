@@ -77,7 +77,7 @@ internal fun ExecOperations.findCommand(command: String): Path? {
     return when {
         result.exitValue != 0 -> null
         out == null -> error("failed to resolve absolute path of command '$command'")
-        else ->  Path.of(out)
+        else -> Path.of(out.lines().first())
     }
 }
 
@@ -112,14 +112,5 @@ private fun ExecOperations.compileRust(
 }
 
 fun buildPlatformRustTarget(platform: Platform): String {
-    val osPart = when (platform.os) {
-        Os.WINDOWS -> "pc-windows-msvc"
-        Os.MACOS -> "apple-darwin"
-        Os.LINUX -> "unknown-linux-gnu"
-    }
-    val archPart = when (platform.arch) {
-        Arch.aarch64 -> "aarch64"
-        Arch.x86_64 -> "x86_64"
-    }
-    return "$archPart-$osPart"
+    return buildPlatformNativeTarget(platform)
 }
