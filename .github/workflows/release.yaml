@@ -64,7 +64,7 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          git add CHANGELOG.md
+          git add oniguruma-jni/CHANGELOG.md
           git commit -m "Version ${VERSION}"
           git push
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
