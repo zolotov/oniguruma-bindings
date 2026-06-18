@@ -26,7 +26,7 @@ github {
 changelog {
     githubUser = github.user
     futureVersionTag = project.version.toString()
-    outputFile = rootProject.file("CHANGELOG.md")
+    outputFile = file("CHANGELOG.md")
 }
 
 repositories {
