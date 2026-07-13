@@ -1,11 +1,5 @@
 name: "CodeQL"
 
-# NOTE: Java/Kotlin analysis is intentionally DISABLED because:
-# - The project uses Kotlin 2.3.0
-# - CodeQL currently only supports Kotlin versions below 2.2.30
-#
-# When CodeQL adds support for Kotlin 2.3+, java-kotlin can be re-enabled.
-
 on:
   push:
     branches:
@@ -24,20 +18,46 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze (actions)
+    name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: java-kotlin
+            build-mode: manual
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+      - name: Setup Java
+        if: matrix.language == 'java-kotlin'
+        uses: actions/setup-java@v5
         with:
-          languages: actions
-          build-mode: none
+          distribution: temurin
+          java-version: 21
+
+      - name: Setup Gradle
+        if: matrix.language == 'java-kotlin'
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Build Java and Kotlin
+        if: matrix.language == 'java-kotlin'
+        run: ./gradlew :oniguruma-jni:compileJava
+        env:
+          NATIVE_BUILD_MODE: skip
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
         with:
-          category: "/language:actions"
+          category: "/language:${{ matrix.language }}"
