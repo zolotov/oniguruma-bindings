@@ -53,7 +53,7 @@ jobs:
 
       - name: Build Java and Kotlin
         if: matrix.language == 'java-kotlin'
-        run: ./gradlew :oniguruma-jni:compileJava
+        run: ./gradlew :oniguruma-jni:compileJava --no-build-cache --rerun-tasks
         env:
           NATIVE_BUILD_MODE: skip
 
