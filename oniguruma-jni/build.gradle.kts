@@ -35,7 +35,7 @@ repositories {
 
 dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter:6.1.2")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.10.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:6.1.2")
     testImplementation("org.openjdk.jmh:jmh-core:1.37")
     testAnnotationProcessor("org.openjdk.jmh:jmh-generator-annprocess:1.37")
 }
