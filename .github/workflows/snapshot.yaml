@@ -6,15 +6,24 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
+      module:
+        description: "Module to publish"
+        required: true
+        type: choice
+        options:
+          - oniguruma-jni
+          - oniguruma-ffm
       version:
         description: "New version"
         required: true
 
-run-name: "Publish ${{ inputs.version }}-SNAPSHOT"
+run-name: "Publish ${{ inputs.module }} ${{ inputs.version }}-SNAPSHOT"
 
 jobs:
   build-native:
     uses: ./.github/workflows/build.yaml
+    with:
+      module: ${{ inputs.module }}
 
   publish:
     runs-on: ubuntu-22.04
@@ -28,7 +37,8 @@ jobs:
       - name: Download all workflow run artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          path: oniguruma-jni/build/target
+          pattern: ${{ inputs.module }}-*-native-artifacts
+          path: ${{ inputs.module }}/build/target
           merge-multiple: true
 
       - name: Setup Java
@@ -53,6 +63,7 @@ jobs:
           # https://vanniktech.github.io/gradle-maven-publish-plugin/central/#__tabbed_5_2
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.OSSRH_TOKEN_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.OSSRH_TOKEN_PASSWORD }}
+          MODULE: ${{ inputs.module }}
           VERSION: ${{ inputs.version }}
         shell: bash
-        run: ./gradlew :oniguruma-jni:check :oniguruma-jni:publishAllPublicationsToMavenCentralRepository "-Pversion=${VERSION}-SNAPSHOT" --no-configuration-cache
+        run: ./gradlew ":${MODULE}:check" ":${MODULE}:publishAllPublicationsToMavenCentralRepository" "-Pversion=${VERSION}-SNAPSHOT" --no-configuration-cache

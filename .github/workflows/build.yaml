@@ -1,13 +1,13 @@
-name: "Build"
+name: "Build module"
 permissions: {}
 
 on:
-  push:
-    branches:
-      - "**"
-    tags:
-      - "**"
   workflow_call:
+    inputs:
+      module:
+        description: "Gradle module to build"
+        required: true
+        type: string
 
 env:
   RUST_VERSION: 1.84.1
@@ -26,15 +26,19 @@ jobs:
           persist-credentials: false
 
       - name: Install compilation dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           apt-get update
           apt-get install -y \
             curl \
             build-essential \
+            cmake \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu
 
       - name: Setup Rust for x86_64
+        if: inputs.module == 'oniguruma-jni'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -44,6 +48,7 @@ jobs:
           cache-workspaces: "./oniguruma-jni/native -> target"
 
       - name: Setup Rust for aarch64
+        if: inputs.module == 'oniguruma-jni'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -62,15 +67,15 @@ jobs:
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
 
       - name: Build with Gradle
-        run: ./gradlew :oniguruma-jni:compileNative-aarch64-unknown-linux-gnu :oniguruma-jni:compileNative-x86_64-unknown-linux-gnu
+        run: ./gradlew ":${{ inputs.module }}:compileNative-aarch64-unknown-linux-gnu" ":${{ inputs.module }}:compileNative-x86_64-unknown-linux-gnu"
         env:
           NATIVE_BUILD_MODE: "all"
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: linux-native-artifacts
-          path: oniguruma-jni/build/target
+          name: ${{ inputs.module }}-linux-native-artifacts
+          path: ${{ inputs.module }}/build/target
 
   build-native-windows:
     runs-on: windows-2022
@@ -82,6 +87,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Rust for x86_64
+        if: inputs.module == 'oniguruma-jni'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -91,6 +97,7 @@ jobs:
           cache-workspaces: "./oniguruma-jni/native -> target"
 
       - name: Setup Rust for aarch64
+        if: inputs.module == 'oniguruma-jni'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -111,13 +118,13 @@ jobs:
       - name: Build with Gradle
         env:
           NATIVE_BUILD_MODE: "all"
-        run: ./gradlew :oniguruma-jni:compileNative-x86_64-pc-windows-msvc :oniguruma-jni:compileNative-aarch64-pc-windows-msvc
+        run: ./gradlew ":${{ inputs.module }}:compileNative-x86_64-pc-windows-msvc" ":${{ inputs.module }}:compileNative-aarch64-pc-windows-msvc"
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: windows-native-artifacts
-          path: oniguruma-jni/build/target
+          name: ${{ inputs.module }}-windows-native-artifacts
+          path: ${{ inputs.module }}/build/target
 
   build-native-mac:
     runs-on: macos-14
@@ -129,6 +136,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Rust for x86_64
+        if: inputs.module == 'oniguruma-jni'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -138,6 +146,7 @@ jobs:
           cache-workspaces: "./oniguruma-jni/native -> target"
 
       - name: Setup Rust for aarch64
+        if: inputs.module == 'oniguruma-jni'
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -156,15 +165,15 @@ jobs:
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
 
       - name: Build with Gradle
-        run: ./gradlew :oniguruma-jni:compileNative-x86_64-apple-darwin :oniguruma-jni:compileNative-aarch64-apple-darwin
+        run: ./gradlew ":${{ inputs.module }}:compileNative-x86_64-apple-darwin" ":${{ inputs.module }}:compileNative-aarch64-apple-darwin"
         env:
           NATIVE_BUILD_MODE: "all"
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: macos-native-artifacts
-          path: oniguruma-jni/build/target
+          name: ${{ inputs.module }}-macos-native-artifacts
+          path: ${{ inputs.module }}/build/target
 
   build:
     runs-on: ubuntu-22.04
@@ -178,7 +187,8 @@ jobs:
       - name: Download all workflow run artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          path: oniguruma-jni/build/target
+          pattern: ${{ inputs.module }}-*-native-artifacts
+          path: ${{ inputs.module }}/build/target
           merge-multiple: true
 
       - name: Setup Java
@@ -191,6 +201,6 @@ jobs:
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
 
       - name: Build with Gradle
-        run: ./gradlew :oniguruma-jni:build
+        run: ./gradlew ":${{ inputs.module }}:build"
         env:
           NATIVE_BUILD_MODE: "skip"
