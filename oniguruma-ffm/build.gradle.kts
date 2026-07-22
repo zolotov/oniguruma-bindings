@@ -51,6 +51,7 @@ repositories {
 dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    jmhImplementation(project(":benchmarks"))
     jmhImplementation(libs.jmh.core)
     jmhAnnotationProcessor(libs.jmh.generator.annprocess)
 }
@@ -69,7 +70,7 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-    jvmArgs("--enable-native-access=ALL-UNNAMED,me.zolotov.oniguruma.ffm")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     testLogging {
         exceptionFormat = TestExceptionFormat.FULL
     }
@@ -77,6 +78,18 @@ tasks.withType<Test>().configureEach {
 
 tasks.named("jmhRunBytecodeGenerator") {
     enabled = false
+}
+
+jmh {
+    // Keep this lazy: calling .get() here resolved (and downloaded) the toolchain during
+    // configuration of every build, so tasks that never run JMH -- including the
+    // compileNative-* jobs, which run on a different JDK -- had to provision this one first.
+    jvm.set(
+        javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(25))
+        }.map { it.executablePath.asFile.absolutePath }
+    )
+    jvmArgsAppend = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 val onigurumaVersion = "6.9.10"
