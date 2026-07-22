@@ -1,6 +1,6 @@
 name: Release
 permissions:
-  contents: write
+  contents: read
 
 on:
   workflow_dispatch:
@@ -18,24 +18,27 @@ jobs:
   release:
     runs-on: ubuntu-22.04
     needs: build-native
+    permissions:
+      # Push the changelog commit and create the GitHub release
+      contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Download all workflow run artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: oniguruma-jni/build/target
           merge-multiple: true
 
       - name: Setup Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:
           distribution: 'temurin'
           java-version: 21
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
 
       - name: Publish
         env:
@@ -50,8 +53,9 @@ jobs:
           # https://vanniktech.github.io/gradle-maven-publish-plugin/central/#__tabbed_5_2
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.OSSRH_TOKEN_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.OSSRH_TOKEN_PASSWORD }}
+          VERSION: ${{ inputs.version }}
         shell: bash
-        run: ./gradlew :oniguruma-jni:check :oniguruma-jni:generateChangelog :oniguruma-jni:publishAndReleaseToMavenCentral -Pversion=${{ inputs.version }} --no-configuration-cache
+        run: ./gradlew :oniguruma-jni:check :oniguruma-jni:generateChangelog :oniguruma-jni:publishAndReleaseToMavenCentral "-Pversion=${VERSION}" --no-configuration-cache
 
       - name: Commit and push change log
         id: changelog-commit
@@ -61,14 +65,15 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
           git add CHANGELOG.md
-          git commit -m "Version ${{ inputs.version }}"
+          git commit -m "Version ${VERSION}"
           git push
-          echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
 
       - name: Create release and tag
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
           tag_name: ${{ inputs.version }}
           target_commitish: ${{ steps.changelog-commit.outputs.sha }}
