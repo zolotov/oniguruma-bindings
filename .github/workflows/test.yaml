@@ -12,6 +12,9 @@ permissions:
   actions: read
   checks: write
 
+env:
+  RUST_VERSION: 1.84.1
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -30,18 +33,30 @@ jobs:
         uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:
           distribution: 'temurin'
-          java-version: 21
+          java-version: 25
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          cache: true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
 
+      - name: Install Linux compilation dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+
       - name: Build with Gradle
-        run: ./gradlew :oniguruma-jni:test
+        run: ./gradlew :oniguruma-jni:test :oniguruma-ffm:test
 
       - name: Publish Test Report
         if: always() # Ensure this step runs even if the test step fails
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
         with:
           name: Tests Report (${{ matrix.os }})
-          path: oniguruma-jni/build/test-results/test/*.xml
+          path: "**/build/test-results/test/*.xml"
           reporter: java-junit
