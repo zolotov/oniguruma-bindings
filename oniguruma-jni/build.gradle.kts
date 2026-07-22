@@ -36,12 +36,24 @@ repositories {
 dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    jmhImplementation(project(":benchmarks"))
     jmhImplementation(libs.jmh.core)
     jmhAnnotationProcessor(libs.jmh.generator.annprocess)
 }
 
 tasks.test {
     useJUnitPlatform()
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    })
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+jmh {
+    jvm = javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }.get().executablePath.asFile.absolutePath
+    jvmArgsAppend = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 java {
@@ -53,9 +65,34 @@ java {
 }
 
 val currentPlatform = currentPlatform()
-val nativeBuildMode = providers.environmentVariable("NATIVE_BUILD_MODE").orNull
+val nativeBuildMode = providers.gradleProperty("nativeBuildMode")
+    .orElse(providers.environmentVariable("NATIVE_BUILD_MODE"))
+val nativeBuildModeValue = nativeBuildMode.orNull ?: "current"
+require(nativeBuildModeValue in setOf("current", "all", "skip")) {
+    "Unsupported native build mode '$nativeBuildModeValue'. Use 'current', 'all', or 'skip'."
+}
+val nativePlatforms = listOf(
+    Platform(Os.MACOS, Arch.aarch64),
+    Platform(Os.MACOS, Arch.x86_64),
+    Platform(Os.WINDOWS, Arch.aarch64),
+    Platform(Os.WINDOWS, Arch.x86_64),
+    Platform(Os.LINUX, Arch.aarch64),
+    Platform(Os.LINUX, Arch.x86_64),
+)
+val nativeResourcePlatforms = when (nativeBuildModeValue) {
+    "all", "skip" -> nativePlatforms
+    else -> listOf(currentPlatform)
+}
+val nativeRustProfile = "release"
+fun nativeLibraryFile(platform: Platform) = layout.buildDirectory.file(
+    "target/${buildPlatformRustTarget(platform)}/$nativeRustProfile/${when (platform.os) {
+        Os.LINUX -> "liboniguruma_jni.so"
+        Os.MACOS -> "liboniguruma_jni.dylib"
+        Os.WINDOWS -> "oniguruma_jni.dll"
+    }}"
+)
 
-fun isNativeBuildEnabled(platform: Platform): Boolean = when (nativeBuildMode) {
+fun isNativeBuildEnabled(platform: Platform): Boolean = when (nativeBuildModeValue) {
     "skip" -> false
     "all" -> true
     else -> currentPlatform == platform
@@ -65,22 +102,15 @@ fun isNativeBuildEnabled(platform: Platform): Boolean = when (nativeBuildMode) {
 // either compiled by the corresponding task, or provided in prebuilt form
 // when the compilation is skipped (the CI release flow downloads prebuilt
 // binaries for all platforms into the build directory).
-fun isNativeLibraryAvailable(platform: Platform): Boolean = when (nativeBuildMode) {
+fun isNativeLibraryAvailable(platform: Platform): Boolean = when (nativeBuildModeValue) {
     "skip", "all" -> true
     else -> currentPlatform == platform
 }
 
-val compileRustBindingsTaskByPlatform = listOf(
-    Platform(Os.MACOS, Arch.aarch64),
-    Platform(Os.MACOS, Arch.x86_64),
-    Platform(Os.WINDOWS, Arch.aarch64),
-    Platform(Os.WINDOWS, Arch.x86_64),
-    Platform(Os.LINUX, Arch.aarch64),
-    Platform(Os.LINUX, Arch.x86_64)
-).associateWith { platform ->
+val compileRustBindingsTaskByPlatform = nativePlatforms.associateWith { platform ->
     tasks.register<CompileRustTask>("compileNative-${buildPlatformRustTarget(platform)}") {
         crateName = "oniguruma-jni"
-        rustProfile = "release"
+        rustProfile = nativeRustProfile
         rustTarget = platform
         nativeDirectory = layout.projectDirectory.dir("native")
         enabled = isNativeBuildEnabled(platform)
@@ -89,16 +119,19 @@ val compileRustBindingsTaskByPlatform = listOf(
 
 val generateNativeResources = tasks.register<Sync>("generateResourcesDir") {
     destinationDir = layout.buildDirectory.dir("native").get().asFile
+    if (nativeBuildModeValue != "skip") {
+        dependsOn(nativeResourcePlatforms.map { compileRustBindingsTaskByPlatform.getValue(it) })
+    }
 
-    compileRustBindingsTaskByPlatform.forEach { (platform, task) ->
-        from(task.map { it.libraryFile }) {
+    nativeResourcePlatforms.forEach { platform ->
+        from(nativeLibraryFile(platform)) {
             into("native/${platform.normalizedName}")
         }
     }
 }
 
 tasks.processResources {
-    dependsOn(*compileRustBindingsTaskByPlatform.values.toTypedArray())
+    dependsOn(generateNativeResources)
 }
 
 sourceSets {
@@ -107,9 +140,36 @@ sourceSets {
     }
 }
 
-// Configure the sourcesJar task to exclude resources
+val verifyNativeResources = tasks.register("verifyNativeResources") {
+    group = "verification"
+    description = "Verifies that bundled native resources required by the active native build mode are present."
+
+    dependsOn(generateNativeResources)
+    inputs.property("nativeBuildMode", nativeBuildModeValue)
+
+    val libraryFiles = nativeResourcePlatforms.map(::nativeLibraryFile)
+    val projectDirectory = layout.projectDirectory.asFile
+    doLast {
+        val missingLibraries = libraryFiles
+            .map { it.get().asFile }
+            .filterNot { it.isFile }
+
+        if (missingLibraries.isNotEmpty()) {
+            error(
+                "Missing bundled JNI native libraries:\n" +
+                    missingLibraries.joinToString(separator = "\n") { " - ${it.relativeTo(projectDirectory)}" } +
+                    "\nBuild the current-platform library with './gradlew :oniguruma-jni:test', or download/build all CI native artifacts before packaging with NATIVE_BUILD_MODE=skip or -PnativeBuildMode=skip."
+            )
+        }
+    }
+}
+
 tasks.named<Jar>("sourcesJar") {
     exclude("**/native")
+}
+
+tasks.named<Jar>("jar") {
+    dependsOn(verifyNativeResources)
 }
 
 val slimJar = tasks.register<Jar>("slimJar") {

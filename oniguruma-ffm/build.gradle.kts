@@ -47,6 +47,7 @@ repositories {
 dependencies {
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    jmhImplementation(project(":benchmarks"))
     jmhImplementation(libs.jmh.core)
     jmhAnnotationProcessor(libs.jmh.generator.annprocess)
 }
@@ -65,7 +66,7 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-    jvmArgs("--enable-native-access=ALL-UNNAMED,me.zolotov.oniguruma.ffm")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
     testLogging {
         exceptionFormat = TestExceptionFormat.FULL
     }
@@ -73,6 +74,13 @@ tasks.withType<Test>().configureEach {
 
 tasks.named("jmhRunBytecodeGenerator") {
     enabled = false
+}
+
+jmh {
+    jvm = javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
+    }.get().executablePath.asFile.absolutePath
+    jvmArgsAppend = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 val onigurumaVersion = "6.9.10"
