@@ -7,9 +7,9 @@ import me.zolotov.oniguruma.build.normalizedName
 plugins {
     `java-library`
     alias(libs.plugins.jmh)
-    id("com.vanniktech.maven.publish") version "0.37.0"
-    id("org.hildan.github.changelog") version "2.2.0"
-    id("ru.vyarus.github-info") version "2.0.0"
+    alias(libs.plugins.publish)
+    alias(libs.plugins.changelog)
+    alias(libs.plugins.github)
 }
 
 group = "me.zolotov.oniguruma"
