@@ -103,10 +103,12 @@ jmh {
     )
     jvmArgsAppend = listOf("--enable-native-access=ALL-UNNAMED")
 
-    // "quick" is what CI runs (see :benchmarks:ciBenchmark); the default profile is
-    // for local investigations where longer, steadier runs matter more than wall time.
+    // CI runs the default (full) profile so the published trend data comes from steady,
+    // fully warmed measurements; "quick" is an opt-in shortcut for local smoke checks.
     val quick = providers.gradleProperty("benchmarkProfile").orNull == "quick"
-    fork = 1
+    // Two forks in the full profile: a single JVM bakes one compilation outcome into every
+    // score, and JVM-to-JVM variance is exactly where small JNI-vs-FFM deltas drown.
+    fork = if (quick) 1 else 2
     warmupIterations = if (quick) 2 else 5
     warmup = if (quick) "500ms" else "1s"
     iterations = if (quick) 3 else 5
