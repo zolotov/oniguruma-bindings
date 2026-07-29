@@ -1,4 +1,8 @@
+@file:Suppress("UnstableApiUsage")
+
 import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.SourcesJar
 import me.zolotov.oniguruma.build.*
 import me.zolotov.oniguruma.build.Platform
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
@@ -89,6 +93,17 @@ jmh {
         }.map { it.executablePath.asFile.absolutePath }
     )
     jvmArgsAppend = listOf("--enable-native-access=ALL-UNNAMED")
+
+    // "quick" is what CI runs (see :benchmarks:ciBenchmark); the default profile is
+    // for local investigations where longer, steadier runs matter more than wall time.
+    val quick = providers.gradleProperty("benchmarkProfile").orNull == "quick"
+    fork = 1
+    warmupIterations = if (quick) 2 else 5
+    warmup = if (quick) "500ms" else "1s"
+    iterations = if (quick) 3 else 5
+    timeOnIteration = if (quick) "500ms" else "1s"
+    resultFormat = "JSON"
+    resultsFile = layout.buildDirectory.file("results/jmh/results.json")
 }
 
 val onigurumaVersion = "6.9.10"
@@ -346,10 +361,7 @@ compileNativeTaskByPlatform.forEach { (platform, task) ->
 }
 
 mavenPublishing  {
-    configure(JavaLibrary(
-            javadocJar = JavadocJar.Javadoc(),
-            sourcesJar = true,
-        ))
+    configure(JavaLibrary(JavadocJar.Javadoc(), SourcesJar.Sources()))
     publishToMavenCentral(automaticRelease = true)
     signAllPublications()
     pom {
