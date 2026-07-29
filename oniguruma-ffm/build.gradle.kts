@@ -1,18 +1,7 @@
 import com.vanniktech.maven.publish.JavaLibrary
-import com.vanniktech.maven.publish.JavadocJar
-import me.zolotov.oniguruma.build.Arch
-import me.zolotov.oniguruma.build.CompileOnigurumaTask
-import me.zolotov.oniguruma.build.Os
+import me.zolotov.oniguruma.build.*
 import me.zolotov.oniguruma.build.Platform
-import me.zolotov.oniguruma.build.buildPlatformNativeTarget
-import me.zolotov.oniguruma.build.currentPlatform
-import me.zolotov.oniguruma.build.normalizedName
-import me.zolotov.oniguruma.build.onigurumaLibraryName
-import org.gradle.api.attributes.Attribute
-import org.gradle.api.component.AdhocComponentWithVariants
-import org.gradle.api.file.RelativePath
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
-import org.gradle.jvm.toolchain.JavaLanguageVersion
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -24,7 +13,6 @@ plugins {
     alias(libs.plugins.jmh)
     alias(libs.plugins.publish)
     alias(libs.plugins.changelog)
-    alias(libs.plugins.github)
 }
 
 group = "me.zolotov.oniguruma"
@@ -33,15 +21,26 @@ description = """
     This library is primarily designed to support syntax highlighting in IntelliJ-based IDEs through the textmate-core library.
 """.trimIndent()
 
-github {
-    user = "zolotov"
-    license = "Apache"
+// See the matching block in oniguruma-jni/build.gradle.kts: entries are hand-written into the
+// "Unreleased" section, and the release only promotes and extracts that section.
+changelog {
+    title = "Change Log"
+    versionPrefix = "oniguruma-ffm-"
+    repositoryUrl = "https://github.com/zolotov/oniguruma-bindings"
+    // No group headings are seeded into a fresh Unreleased section: an author adds the ones
+    // they need (Breaking, Added, Changed, Fixed, Performance) rather than deleting five
+    // empty headings after every release.
+    groups = emptyList()
+    patchEmpty = false
+    outputFile = layout.buildDirectory.file("reports/changelog/latest-release-body.md")
 }
 
-changelog {
-    githubUser = github.user
-    futureVersionTag = "${project.name}-${project.version}"
-    outputFile = file("CHANGELOG.md")
+tasks.register<UpdateReadmeVersionTask>("updateReadmeVersion") {
+    group = "release"
+    description = "Points the README dependency snippets at the version being released."
+    readmeFile = layout.projectDirectory.file("README.md")
+    coordinate = "${project.group}:${project.name}"
+    version = project.version.toString()
 }
 
 repositories {
@@ -346,7 +345,7 @@ compileNativeTaskByPlatform.forEach { (platform, task) ->
     }
 }
 
-mavenPublishing {
+mavenPublishing  {
     configure(JavaLibrary(
             javadocJar = JavadocJar.Javadoc(),
             sourcesJar = true,

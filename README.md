@@ -29,13 +29,6 @@ A Java Foreign Function & Memory wrapper backed by the upstream C library.
 - JPMS module: `me.zolotov.oniguruma.ffm`
 - Documentation: [`oniguruma-ffm/README.md`](./oniguruma-ffm/README.md)
 
-## Releases
-
-Each module now has its own release cadence:
-
-- `oniguruma-jni`: changelog in [`oniguruma-jni/CHANGELOG.md`](./oniguruma-jni/CHANGELOG.md), tags and GitHub releases as `oniguruma-jni-vX.Y.Z`
-- `oniguruma-ffm`: changelog in [`oniguruma-ffm/CHANGELOG.md`](./oniguruma-ffm/CHANGELOG.md), tags and GitHub releases as `oniguruma-ffm-vX.Y.Z`
-
 ## Building
 
 Build all modules:

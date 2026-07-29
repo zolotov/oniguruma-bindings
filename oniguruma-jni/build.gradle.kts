@@ -3,13 +3,13 @@ import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.SourcesJar
 import me.zolotov.oniguruma.build.*
 import me.zolotov.oniguruma.build.Platform
+import org.jetbrains.changelog.ChangelogSectionUrlBuilder
 
 plugins {
     `java-library`
     alias(libs.plugins.jmh)
     alias(libs.plugins.publish)
     alias(libs.plugins.changelog)
-    alias(libs.plugins.github)
 }
 
 group = "me.zolotov.oniguruma"
@@ -18,15 +18,52 @@ description = """
     This library is primarily designed to support syntax highlighting in IntelliJ-based IDEs through the textmate-core library.
 """.trimIndent()
 
-github {
-    user = "zolotov"
-    license = "Apache"
+// Entries are written by hand into the "Unreleased" section, because a commit subject describes
+// what the author did to the source tree rather than what a consumer of the library gets.
+// `patchChangelog` only promotes that hand-edited section, and `getChangelog` hands the very
+// same text to the GitHub release, so what ships is exactly what was reviewed.
+changelog {
+    title = "Change Log"
+    versionPrefix = "oniguruma-jni-"
+    repositoryUrl = "https://github.com/zolotov/oniguruma-bindings"
+    // No group headings are seeded into a fresh Unreleased section: an author adds the ones
+    // they need (Breaking, Added, Changed, Fixed, Performance) rather than deleting five
+    // empty headings after every release.
+    groups = emptyList()
+    // Never turn an empty Unreleased section into a release section: patchChangelog fails instead,
+    // which is what stops a release from shipping without notes.
+    patchEmpty = false
+    outputFile = layout.buildDirectory.file("reports/changelog/latest-release-body.md")
+
+    // Releases up to 2.0.0 shipped before the repository was split into oniguruma-jni and
+    // oniguruma-ffm, and are tagged without the module prefix. Without this, versionPrefix would
+    // point every historical comparison link at an `oniguruma-jni-1.0.3` tag that does not exist.
+    sectionUrlBuilder = object : ChangelogSectionUrlBuilder {
+        private fun tag(version: String) =
+            if (version.startsWith("1.") || version == "2.0.0") version else "oniguruma-jni-$version"
+
+        override fun build(
+            repositoryUrl: String,
+            currentVersion: String?,
+            previousVersion: String?,
+            isUnreleased: Boolean,
+        ): String = when {
+            isUnreleased -> when (previousVersion) {
+                null -> "$repositoryUrl/commits"
+                else -> "$repositoryUrl/compare/${tag(previousVersion)}...HEAD"
+            }
+            previousVersion == null -> "$repositoryUrl/commits/${tag(currentVersion!!)}"
+            else -> "$repositoryUrl/compare/${tag(previousVersion)}...${tag(currentVersion!!)}"
+        }
+    }
 }
 
-changelog {
-    githubUser = github.user
-    futureVersionTag = "${project.name}-${project.version}"
-    outputFile = file("CHANGELOG.md")
+tasks.register<UpdateReadmeVersionTask>("updateReadmeVersion") {
+    group = "release"
+    description = "Points the README dependency snippets at the version being released."
+    readmeFile = layout.projectDirectory.file("README.md")
+    coordinate = "${project.group}:${project.name}"
+    version = project.version.toString()
 }
 
 repositories {
