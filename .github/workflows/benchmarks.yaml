@@ -163,7 +163,7 @@ jobs:
                 (github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) }}
           PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
         run: |
-          args=(-PbenchmarkProfile=quick -PbenchmarkHistoryFile=benchmarks/build/pages-seed/data/history.json)
+          args=(-PbenchmarkHistoryFile=benchmarks/build/pages-seed/data/history.json)
           if [ "$IS_DEPLOYED_RUN" = "true" ]; then
             args+=("-PbenchmarkSiteUrl=$BENCHMARK_PAGES_URL")
           fi

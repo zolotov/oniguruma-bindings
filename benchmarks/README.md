@@ -14,19 +14,19 @@ shared inputs (`OnigurumaBenchmarkInputs`) so both bindings measure identical wo
 ## Running Locally
 
 ```bash
-# Full benchmarks for one binding (5 warmups, 5 iterations, 1s each)
+# Full benchmarks for one binding (5 warmups, 5 iterations, 1s each — what CI runs)
 ./gradlew :oniguruma-jni:jmh
 ./gradlew :oniguruma-ffm:jmh
 
-# Quick benchmarks (2 warmups, 3 iterations, 500ms each — what CI runs)
+# Quick benchmarks (2 warmups, 3 iterations, 500ms each) for a local smoke check
 ./gradlew :oniguruma-jni:jmh -PbenchmarkProfile=quick
 
-# CI-style aggregate report + Pages bundle (runs both suites in quick profile)
-./gradlew :benchmarks:ciBenchmark -PbenchmarkProfile=quick
+# CI-style aggregate report + Pages bundle (runs both suites in the full profile)
+./gradlew :benchmarks:ciBenchmark
 
 # Compare against the published history (what CI does)
 curl -fsSL https://zolotov.github.io/oniguruma-bindings/data/history.json -o /tmp/history.json
-./gradlew :benchmarks:ciBenchmark -PbenchmarkProfile=quick \
+./gradlew :benchmarks:ciBenchmark \
   -PbenchmarkHistoryFile=/tmp/history.json \
   -PbenchmarkSiteUrl=https://zolotov.github.io/oniguruma-bindings
 ```
@@ -40,7 +40,7 @@ Gradle properties understood by the pipeline:
 
 | Property                         | Default | Meaning                                                                                                                                                                                                          |
 |----------------------------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `benchmarkProfile`               | `full`  | `quick` shortens warmup/measurement for CI; anything else runs the full profile                                                                                                                                  |
+| `benchmarkProfile`               | `full`  | `quick` shortens warmup/measurement for local smoke checks; anything else (including CI) runs the full profile                                                                                                                                  |
 | `benchmarkHistoryFile`           | none    | Existing `history.json` to use as the comparison baseline and to extend                                                                                                                                          |
 | `benchmarkSiteUrl`               | none    | Published Pages URL, embedded into reports and the step summary                                                                                                                                                  |
 | `benchmarkPrNumber`              | none    | Pull request number. Enables the per-PR site payload (`site/data/prs/<n>/`), `report/pr-history.json`, and the "Benchmark Runs in This PR" summary section                                                       |
@@ -83,7 +83,7 @@ benchmarks/build/ci/
 - download the published `history.json` from the existing Pages site (404 = fresh start;
   any other failure aborts the run so a transient outage can never wipe the trend data);
   for PR runs, additionally download that PR's published run history
-- run `./gradlew :benchmarks:ciBenchmark -PbenchmarkProfile=quick`
+- run `./gradlew :benchmarks:ciBenchmark` (full profile: 5 warmups, 5 iterations, 1s each)
 - upload `benchmarks/build/ci/` as the workflow artifact
 - on pull requests, upsert a sticky PR comment with `report/summary.md`
 - deploy to GitHub Pages after every `main` push and every non-fork PR run; on PR close,
