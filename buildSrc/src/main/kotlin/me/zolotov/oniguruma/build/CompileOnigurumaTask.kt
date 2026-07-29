@@ -64,17 +64,25 @@ abstract class CompileOnigurumaTask @Inject constructor(
 
         execOperations.exec {
             commandLine(
-                listOf(
-                    cmake.toString(),
-                    "-S",
-                    sourceDirectory.get().asFile.absolutePath,
-                    "-B",
-                    buildDirectory.toString(),
-                ) + cmakePlatformArguments(platform) + listOf(
-                    "-DBUILD_SHARED_LIBS=ON",
-                    "-DBUILD_TESTING=OFF",
-                    "-DCMAKE_BUILD_TYPE=${buildType.get()}",
-                )
+                buildList {
+                    addAll(
+                        listOf(
+                            cmake.toString(),
+                            "-S",
+                            sourceDirectory.get().asFile.absolutePath,
+                            "-B",
+                            buildDirectory.toString(),
+                        )
+                    )
+                    addAll(cmakePlatformArguments(platform))
+                    addAll(
+                        listOf(
+                            "-DBUILD_SHARED_LIBS=ON",
+                            "-DBUILD_TESTING=OFF",
+                            "-DCMAKE_BUILD_TYPE=${buildType.get()}",
+                        )
+                    )
+                }
             )
         }
 
@@ -107,12 +115,23 @@ abstract class CompileOnigurumaTask @Inject constructor(
 
         Os.MACOS -> listOf(
             "-DCMAKE_OSX_ARCHITECTURES=${if (platform.arch == Arch.aarch64) "arm64" else "x86_64"}",
+            // Pin the deployment target explicitly. Without it the dylib inherits whatever the
+            // runner's SDK defaults to, so a GitHub runner image bump could silently raise the
+            // minimum macOS required by an otherwise unchanged release.
+            "-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_DEPLOYMENT_TARGET",
         )
 
         Os.WINDOWS -> listOf(
             "-A",
             if (platform.arch == Arch.aarch64) "ARM64" else "x64",
         )
+    }
+
+    private companion object {
+        /**
+         * Oldest macOS the published dylibs are built to run on. arm64 only exists from 11.0
+         */
+        const val MACOS_DEPLOYMENT_TARGET = "11.0"
     }
 
     private fun findBuiltLibrary(buildDirectory: Path, libraryName: String): Path {
