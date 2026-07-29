@@ -30,7 +30,7 @@ abstract class CompileRustTask @Inject constructor(
     @get:Input
     val rustProfile = objectFactory.property<String>()
 
-    @Internal
+    @get:Internal
     val outputDirectory =
         projectLayout.buildDirectory.dir(providerFactory.provider { "target/${buildPlatformRustTarget(rustTarget.get())}/${rustProfile.get()}" })
 
@@ -89,9 +89,11 @@ private fun ExecOperations.compileRust(
     rustProfile: String,
     libraryFile: Path,
 ) {
+    val cargo = findCommand("cargo")
+        ?: error("Unable to find 'cargo'. Install the Rust toolchain to build the JNI bindings.")
     exec {
         workingDir = nativeDirectory.toFile()
-        commandLine(findCommand("cargo"), "build",
+        commandLine(cargo, "build",
             "--package=$crateName",
             "--profile=$rustProfile",
             "--target=$rustTarget",
