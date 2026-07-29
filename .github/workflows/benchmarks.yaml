@@ -1,0 +1,383 @@
+name: "Benchmarks"
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - closed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_VERSION: 1.84.1
+  BENCHMARK_PAGES_URL: ${{ format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+
+jobs:
+  # Starts the (normally stopped) GCE benchmark runner on demand. Runs only when a
+  # self-hosted runner is configured together with Workload Identity Federation;
+  # otherwise it is skipped and the benchmark job proceeds on GitHub-hosted runners.
+  # The instance stops itself again after 30 idle minutes (see benchmarks/README.md).
+  start-runner:
+    name: Start Benchmark Runner
+    if: >-
+      ${{ vars.BENCHMARK_RUNNER != '' && vars.GCP_RUNNER_WIF_PROVIDER != '' &&
+          (github.event_name != 'pull_request' ||
+           (github.event.action != 'closed' &&
+            !github.event.pull_request.draft && !github.event.pull_request.head.repo.fork)) }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      # No checkout here: this job only mints a GCP token and starts the runner VM.
+      id-token: write
+
+    steps:
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.GCP_RUNNER_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_RUNNER_SERVICE_ACCOUNT }}
+          token_format: access_token
+          # Only the access_token output is used; no need to write credentials to disk.
+          create_credentials_file: false
+
+      - name: Start runner instance
+        env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+          INSTANCE_PATH: ${{ vars.GCP_RUNNER_INSTANCE }}
+        run: |
+          # Starting an already-running instance is a no-op, so this is safe on every run.
+          curl -sSf -X POST \
+            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Content-Length: 0" \
+            "https://compute.googleapis.com/compute/v1/${INSTANCE_PATH}/start" > /dev/null
+          echo "Requested start of ${INSTANCE_PATH}."
+
+  benchmark:
+    name: Run Benchmarks
+    needs: start-runner
+    if: >-
+      ${{ !cancelled() &&
+          (needs.start-runner.result == 'success' || needs.start-runner.result == 'skipped') &&
+          (github.event_name != 'pull_request' ||
+           (github.event.action != 'closed' && !github.event.pull_request.draft)) }}
+    # Fork PRs never run on the self-hosted runner: a fork PR executes untrusted
+    # code, which must not happen on a persistent private machine.
+    runs-on: >-
+      ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)
+          && 'ubuntu-latest'
+          || (vars.BENCHMARK_RUNNER != '' && vars.BENCHMARK_RUNNER || 'ubuntu-latest') }}
+
+    permissions:
+      # Deliberately no pull-requests: write. This job runs the Gradle build and the JMH
+      # suites -- on a self-hosted runner for same-repo PRs -- so it should not hold a token
+      # that can write to pull requests. The comment-pr job below does that instead.
+      contents: read
+
+    outputs:
+      artifact-url: ${{ steps.artifact.outputs.artifact-url }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
+        with:
+          distribution: "temurin"
+          java-version: 25
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          cache: true
+
+      - name: Install Linux compilation dependencies
+        run: |
+          # Idempotent; a no-op on the self-hosted runner after the first run.
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6
+
+      - name: Seed previous benchmark history
+        run: |
+          mkdir -p benchmarks/build/pages-seed/data
+          history_file=benchmarks/build/pages-seed/data/history.json
+          status=$(curl -sSL --proto '=https' --max-redirs 3 \
+            --connect-timeout 15 --max-time 300 --retry 5 \
+            -o "$history_file" -w "%{http_code}" \
+            "${BENCHMARK_PAGES_URL%/}/data/history.json") || status=000
+          if [ "$status" = "200" ]; then
+            echo "Seeded benchmark history from ${BENCHMARK_PAGES_URL}."
+          elif [ "$status" = "404" ]; then
+            echo "No published history yet (HTTP 404); starting a fresh history."
+            rm -f "$history_file"
+          else
+            echo "::error::Failed to download benchmark history (HTTP ${status}). Refusing to continue, because publishing without it would wipe the trend data."
+            exit 1
+          fi
+
+      - name: Seed this PR's benchmark run history
+        if: github.event_name == 'pull_request'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          pr_history=benchmarks/build/pages-seed/data/pr-history.json
+          status=$(curl -sSL --proto '=https' --max-redirs 3 \
+            --connect-timeout 15 --max-time 300 --retry 5 \
+            -o "$pr_history" -w "%{http_code}" \
+            "${BENCHMARK_PAGES_URL%/}/data/prs/${PR_NUMBER}/history.json") || status=000
+          if [ "$status" = "200" ]; then
+            echo "Seeded run history for PR #${PR_NUMBER}."
+          elif [ "$status" = "404" ]; then
+            echo "No published runs for PR #${PR_NUMBER} yet; starting fresh."
+            rm -f "$pr_history"
+          else
+            echo "::error::Failed to download PR run history (HTTP ${status}). Refusing to continue, because publishing without it would drop the PR's earlier runs."
+            exit 1
+          fi
+
+      - name: Run Gradle benchmark pipeline
+        env:
+          # The site URL is embedded only for runs that actually deploy to Pages:
+          # pushes to main and non-fork PR runs (which publish under data/prs/<n>/).
+          IS_DEPLOYED_RUN: >-
+            ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') ||
+                (github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) }}
+          PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
+        run: |
+          args=(-PbenchmarkProfile=quick -PbenchmarkHistoryFile=benchmarks/build/pages-seed/data/history.json)
+          if [ "$IS_DEPLOYED_RUN" = "true" ]; then
+            args+=("-PbenchmarkSiteUrl=$BENCHMARK_PAGES_URL")
+          fi
+          if [ -n "$PR_NUMBER" ]; then
+            args+=("-PbenchmarkPrNumber=$PR_NUMBER")
+            if [ -f benchmarks/build/pages-seed/data/pr-history.json ]; then
+              args+=("-PbenchmarkPrHistoryFile=benchmarks/build/pages-seed/data/pr-history.json")
+            fi
+          fi
+          ./gradlew :benchmarks:ciBenchmark "${args[@]}"
+
+      - name: Upload benchmark artifacts
+        id: artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Stable per-run name (no attempt suffix) so a rerun of just the deploy job
+          # can still find the artifact from the original attempt; overwrite covers
+          # full reruns that upload again.
+          name: benchmark-report-${{ github.run_id }}
+          path: benchmarks/build/ci
+          if-no-files-found: error
+          overwrite: true
+
+  # Isolated from the benchmark job purely so that pull-requests: write is not held while
+  # the build and the JMH suites run. Reads only the artifact produced by that job.
+  comment-pr:
+    name: Comment Benchmark Summary
+    needs: benchmark
+    if: github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Download benchmark artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: benchmark-report-${{ github.run_id }}
+          path: benchmarks/build/ci
+
+      - name: Comment benchmark summary on PR
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ARTIFACT_URL: ${{ needs.benchmark.outputs.artifact-url }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- oniguruma-benchmark-report -->';
+            const summary = fs.readFileSync('benchmarks/build/ci/report/summary.md', 'utf8');
+            const artifactUrl = process.env.ARTIFACT_URL;
+            const artifactNote = artifactUrl
+              ? `\n- Interactive report: download the [benchmark-report artifact](${artifactUrl}) and open \`site/index.html\`.\n`
+              : '';
+            const body = `${marker}\n${summary}${artifactNote}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              ...context.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }
+
+  # Deploys after every main push and every non-fork PR run. deploy-pages replaces
+  # the whole site, so the merge step carries forward whatever this run did not
+  # produce itself: main trend data for PR runs, and all other PRs' data always.
+  # The job-level concurrency group serializes deploys across PRs and main.
+  deploy-pages:
+    name: Deploy Benchmark Pages
+    needs: benchmark
+    if: >-
+      ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'pull_request' && github.event.action != 'closed' &&
+           !github.event.pull_request.draft && !github.event.pull_request.head.repo.fork) }}
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: benchmark-pages-deploy
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # This job holds pages: write and id-token: write, and the only thing it needs from the
+      # repository is the merge script — the site itself comes from the benchmark artifact. Take
+      # that script from the default branch so a pull request cannot change what runs here.
+      #
+      # Until this workflow lands on the default branch there is nothing to check out there, so
+      # the sparse checkout can come back empty and the step below falls back to this ref's copy
+      # with a warning. Once merged, the trusted copy always wins; a pull request cannot remove
+      # it from the default branch.
+      - name: Checkout trusted merge script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.repository.default_branch }}
+          path: .trusted
+          sparse-checkout: benchmarks/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Download benchmark artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: benchmark-report-${{ github.run_id }}
+          path: benchmarks/build/ci
+
+      - name: Merge published Pages data
+        env:
+          IS_PR_RUN: ${{ github.event_name == 'pull_request' }}
+          PR_NUMBER: ${{ github.event_name == 'pull_request' && github.event.pull_request.number || '' }}
+        run: |
+          script=.trusted/benchmarks/scripts/merge-pages-data.sh
+          if [ ! -f "$script" ]; then
+            echo "::warning::benchmarks/scripts is not on the default branch yet; using this ref's merge script. This falls away once the benchmark workflow is merged."
+            script=./benchmarks/scripts/merge-pages-data.sh
+          fi
+
+          args=(--site benchmarks/build/ci/site --base-url "$BENCHMARK_PAGES_URL")
+          if [ "$IS_PR_RUN" = "true" ]; then
+            args+=(--preserve-main --add-pr "$PR_NUMBER")
+          fi
+          "$script" "${args[@]}"
+
+      - name: Upload benchmark pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: benchmarks/build/ci/site
+
+      - name: Deploy benchmark pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+  # Removes a closed PR's data from the published site. Fork PRs never publish,
+  # so there is nothing to clean up for them (and they cannot mint an id-token).
+  cleanup-pr-pages:
+    name: Remove Closed PR From Pages
+    if: >-
+      ${{ github.event_name == 'pull_request' && github.event.action == 'closed' &&
+          !github.event.pull_request.head.repo.fork }}
+    runs-on: ubuntu-latest
+
+    concurrency:
+      group: benchmark-pages-deploy
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # On closed events the default checkout ref points at the PR's (possibly
+          # unmerged) code. This job only removes data from the live site, so the
+          # template and merge script must come from the default branch — otherwise
+          # closing an abandoned PR could publish its unmerged site changes.
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Assemble site without the closed PR
+        id: assemble
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Deliberately no fallback to the pull request's own copy here, unlike deploy-pages:
+          # this job assembles the site from the template, so using an unmerged PR's template
+          # would publish that PR's site changes as it is being closed. Until the benchmark
+          # tooling is on the default branch there is simply nothing trustworthy to run, so skip
+          # the cleanup. The closed PR's data stays on the site until the next deploy carries the
+          # index forward without it, which self-corrects once this workflow is merged.
+          if [ ! -f benchmarks/scripts/merge-pages-data.sh ] || [ ! -d benchmarks/site ]; then
+            echo "::warning::Benchmark tooling is not on the default branch yet; skipping cleanup for PR #${PR_NUMBER}."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          site=benchmarks/build/pages-cleanup/site
+          mkdir -p "$site"
+          cp -R benchmarks/site/. "$site/"
+          printf '\n' > "$site/.nojekyll"
+          ./benchmarks/scripts/merge-pages-data.sh --site "$site" --base-url "$BENCHMARK_PAGES_URL" \
+            --preserve-main --remove-pr "$PR_NUMBER"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Upload benchmark pages artifact
+        if: steps.assemble.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: benchmarks/build/pages-cleanup/site
+
+      - name: Deploy benchmark pages
+        id: deployment
+        if: steps.assemble.outputs.ready == 'true'
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

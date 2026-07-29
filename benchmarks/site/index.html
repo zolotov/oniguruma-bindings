@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Oniguruma Bindings Benchmarks</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-loading>
+  <div class="page-shell">
+    <header class="page-header">
+      <div class="page-header-copy">
+        <p class="eyebrow">Oniguruma Bindings</p>
+        <h1>Benchmark Results</h1>
+      </div>
+      <dl class="meta-list" id="meta-list"></dl>
+    </header>
+
+    <!-- Everything below the header is page content, so it belongs inside <main>: as siblings
+         preceding it, these sections were unreachable by landmark navigation. -->
+    <main id="main">
+      <p class="empty-state page-empty" id="load-error" role="alert" hidden>
+        Benchmark data could not be loaded. Run <code>./gradlew :benchmarks:ciBenchmark</code> and open
+        <code>benchmarks/build/ci/site/index.html</code>, or serve this directory over HTTP.
+      </p>
+
+      <section class="pr-list" id="pr-list" aria-label="Open pull requests" hidden></section>
+
+      <section class="changes-grid" id="changes" aria-label="Notable changes"></section>
+
+      <div class="toolbar" id="toolbar">
+        <nav class="suite-nav" id="suite-nav" aria-label="Benchmark suites"></nav>
+        <label class="filter-field">
+          <span class="filter-label">Filter</span>
+          <input type="search" id="filter-input" placeholder="Benchmark name…" autocomplete="off">
+        </label>
+      </div>
+
+      <section id="impl-comparison" aria-label="JNI versus FFM"></section>
+
+      <div id="suites"></div>
+    </main>
+  </div>
+
+  <noscript>
+    <style>body[data-loading] .page-shell { visibility: visible; }</style>
+    <p class="empty-state page-empty">
+      This dashboard renders its tables with JavaScript. The underlying data is available as JSON
+      under <code>data/</code>.
+    </p>
+  </noscript>
+
+  <script src="data/data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
