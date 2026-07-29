@@ -288,6 +288,14 @@ tasks.named<Jar>("jar") {
     dependsOn(verifyNativeResources)
 }
 
+tasks.withType<Test>().configureEach {
+    dependsOn(verifyNativeResources)
+}
+
+tasks.matching { it.name == "jmh" }.configureEach {
+    dependsOn(verifyNativeResources)
+}
+
 tasks.named<Jar>("sourcesJar") {
     exclude("**/native")
 }

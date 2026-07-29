@@ -145,12 +145,20 @@ val nativeResourcePlatforms = when (nativeBuildModeValue) {
     else -> listOf(currentPlatform)
 }
 val nativeRustProfile = "release"
+fun nativeLibraryName(platform: Platform) = when (platform.os) {
+    Os.LINUX -> "liboniguruma_jni.so"
+    Os.MACOS -> "liboniguruma_jni.dylib"
+    Os.WINDOWS -> "oniguruma_jni.dll"
+}
+
+/** Where cargo writes the library. */
 fun nativeLibraryFile(platform: Platform) = layout.buildDirectory.file(
-    "target/${buildPlatformRustTarget(platform)}/$nativeRustProfile/${when (platform.os) {
-        Os.LINUX -> "liboniguruma_jni.so"
-        Os.MACOS -> "liboniguruma_jni.dylib"
-        Os.WINDOWS -> "oniguruma_jni.dll"
-    }}"
+    "target/${buildPlatformRustTarget(platform)}/$nativeRustProfile/${nativeLibraryName(platform)}"
+)
+
+/** Where [generateNativeResources] stages it for packaging, i.e. its path inside the jar. */
+fun packagedNativeLibraryFile(platform: Platform) = layout.buildDirectory.file(
+    "native/native/${platform.normalizedName}/${nativeLibraryName(platform)}"
 )
 
 fun isNativeBuildEnabled(platform: Platform): Boolean = when (nativeBuildModeValue) {
@@ -208,7 +216,10 @@ val verifyNativeResources = tasks.register("verifyNativeResources") {
     dependsOn(generateNativeResources)
     inputs.property("nativeBuildMode", nativeBuildModeValue)
 
-    val libraryFiles = nativeResourcePlatforms.map(::nativeLibraryFile)
+    // Check the staged/packaged location rather than cargo's output directory: Sync silently
+    // ignores a `from(...)` whose source is missing, so verifying the compile output would pass
+    // even when the library never made it into the resources that get packaged.
+    val libraryFiles = nativeResourcePlatforms.map(::packagedNativeLibraryFile)
     val projectDirectory = layout.projectDirectory.asFile
     doLast {
         val missingLibraries = libraryFiles
@@ -230,6 +241,14 @@ tasks.named<Jar>("sourcesJar") {
 }
 
 tasks.named<Jar>("jar") {
+    dependsOn(verifyNativeResources)
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(verifyNativeResources)
+}
+
+tasks.matching { it.name == "jmh" }.configureEach {
     dependsOn(verifyNativeResources)
 }
 
