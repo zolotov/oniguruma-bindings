@@ -67,16 +67,14 @@ final class OnigurumaLoader {
             throw new UnsupportedOperationException("Unsupported operating system: " + os);
         }
 
+        // Only the architectures the build actually bundles (see nativePlatforms in
+        // build.gradle.kts). Anything else must fail here with "unsupported", not later with a
+        // misleading "resource not found" for a resource that never exists.
         String archName;
         if (arch.contains("amd64") || arch.contains("x86_64")) {
             archName = "x86_64";
         } else if (arch.contains("aarch64") || arch.contains("arm64")) {
             archName = "aarch64";
-        } else if (arch.contains("x86") || arch.contains("i386")) {
-            archName = "x86";
-        } else if (arch.contains("arm")) {
-            String bits = System.getProperty("sun.arch.data.model");
-            archName = bits == null || bits.equals("64") ? "arm64" : "arm32";
         } else {
             throw new UnsupportedOperationException("Unsupported architecture: " + arch);
         }
