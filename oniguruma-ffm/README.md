@@ -15,7 +15,7 @@ The library is published in two flavors:
 
 ```kotlin
 dependencies {
-    implementation("me.zolotov.oniguruma:oniguruma-ffm:$version")
+    implementation("me.zolotov.oniguruma:oniguruma-ffm:1.0.0")
 }
 ```
 
@@ -25,7 +25,7 @@ dependencies {
 val onigurumaPackaging = Attribute.of("me.zolotov.oniguruma.packaging", String::class.java)
 
 dependencies {
-    implementation("me.zolotov.oniguruma:oniguruma-ffm:$version") {
+    implementation("me.zolotov.oniguruma:oniguruma-ffm:1.0.0") {
         attributes {
             attribute(onigurumaPackaging, "slim")
         }
@@ -47,7 +47,7 @@ val onigurumaNativeBinding: Configuration by configurations.creating {
 }
 
 dependencies {
-    onigurumaNativeBinding("me.zolotov.oniguruma:oniguruma-ffm:$version")
+    onigurumaNativeBinding("me.zolotov.oniguruma:oniguruma-ffm:1.0.0")
 }
 ```
 
