@@ -1,15 +1,14 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-//! JNI implementation of `org.jetbrains.plugins.textmate.regex.oniguruma.OnigurumaRegexFactory`
-//! and `org.jetbrains.plugins.textmate.regex.oniguruma.OnigurumaRegexFacade` classes
+//! JNI implementation of the `me.zolotov.oniguruma.jni.Oniguruma` class.
 //!
-//! There is convention for naming JNI method in native code:
+//! There is a convention for naming JNI methods in native code:
 //!
 //! 1. prefix is `Java_`
-//! 2. all dots in FQN java class name replaced with underscore
-//! 3. method name is separated from class name with underscore
+//! 2. all dots in the FQN java class name are replaced with underscores
+//! 3. the method name is separated from the class name with an underscore
 //!
-//! So, for exampe `java.lang.System::gc()` becomes `Java_java_lang_System_gc`.
+//! So, for example `java.lang.System::gc()` becomes `Java_java_lang_System_gc`.
 
 use jni::{
     objects::{GlobalRef, JByteArray, JClass, JPrimitiveArray, ReleaseMode},
@@ -45,6 +44,8 @@ pub unsafe extern "system" fn JNI_OnLoad(raw_vm: *mut jni::sys::JavaVM, _: *mut 
 }
 
 // Reuse a Region and the offsets buffer per thread to avoid a malloc/free on every match call.
+// Both keep their high-water-mark capacity (a few bytes per capture group of the largest match
+// the thread ever saw) for the lifetime of the thread.
 thread_local! {
     static REGION: RefCell<Region> = RefCell::new(Region::new());
     static OFFSETS: RefCell<Vec<i32>> = RefCell::new(Vec::new());
@@ -121,7 +122,7 @@ pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeString(
     _: JClass,
     ptr: jlong,
 ) {
-    // Be carefult to restore owned type from pointer
+    // Be careful to restore the owned type from the pointer
     try_catch(|| free::<String>(ptr)).propagate_exception(env);
 }
 
@@ -131,7 +132,7 @@ pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeRegex(
     _: JClass,
     ptr: jlong,
 ) {
-    // Be carefult to restore owned type from pointer
+    // Be careful to restore the owned type from the pointer
     try_catch(|| free::<Regex>(ptr)).propagate_exception(env);
 }
 
@@ -172,7 +173,7 @@ fn match_pattern(
     match_begin_position: jboolean,
     match_begin_string: jboolean,
 ) -> Result<jintArray> {
-    // Creating a null pointer is UB event if it is not used
+    // Creating a null reference is UB even if it is not used
     if regex_ptr == 0 || string_ptr == 0 {
         return Err(Error::NullPatternOrString);
     }
