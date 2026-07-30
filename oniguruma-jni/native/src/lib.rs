@@ -240,16 +240,23 @@ fn create_string(env: &mut JNIEnv, utf8: jbyteArray) -> Result<jlong> {
     } else {
         unsafe {
             let p = JByteArray::from_raw(utf8);
-            // Critical: pins the Java heap object without copying (GC is suspended for duration).
-            let elements = env.get_array_elements_critical(&p, ReleaseMode::NoCopyBack)?;
-            let slice = slice::from_raw_parts(elements.as_ptr() as *const u8, elements.len());
+            // Allocate the destination before entering the critical section: the JNI spec forbids
+            // anything that can block between Get/ReleasePrimitiveArrayCritical, and a malloc can.
+            // With the capacity reserved up front, the critical section is just the memcpy.
+            let mut bytes = Vec::with_capacity(env.get_array_length(&p)? as usize);
+            {
+                // Critical: pins the Java heap object without copying (GC is suspended for duration).
+                let elements = env.get_array_elements_critical(&p, ReleaseMode::NoCopyBack)?;
+                let slice = slice::from_raw_parts(elements.as_ptr() as *const u8, elements.len());
+                bytes.extend_from_slice(slice);
+                // elements drops here, releasing the critical section before any further JNI calls.
+            }
             // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createString,
             // matching the FFM binding, which copies the bytes into native memory without
             // validating either. The bytes go straight through to onig_search; nothing on the
             // Rust side inspects them as text. Skipping validation keeps createString a single
             // copy, which is most of its cost for large texts.
-            let str = String::from_utf8_unchecked(slice.to_vec());
-            drop(elements); // Release critical section before any further JNI calls.
+            let str = String::from_utf8_unchecked(bytes);
             Ok(Box::into_raw(Box::<String>::new(str)) as jlong)
         }
     }
