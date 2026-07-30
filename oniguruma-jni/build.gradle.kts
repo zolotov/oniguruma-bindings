@@ -1,8 +1,8 @@
-import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.JavaLibrary
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.SourcesJar
 import me.zolotov.oniguruma.build.*
 import me.zolotov.oniguruma.build.Platform
-import me.zolotov.oniguruma.build.normalizedName
 
 plugins {
     `java-library`
@@ -176,10 +176,7 @@ compileRustBindingsTaskByPlatform.forEach { (platform, task) ->
 }
 
 mavenPublishing {
-    configure(JavaLibrary(
-        javadocJar = JavadocJar.Javadoc(),
-        sourcesJar = true
-    ))
+    configure(JavaLibrary(JavadocJar.Javadoc(), SourcesJar.Sources()))
     publishToMavenCentral(automaticRelease = true)
     signAllPublications()
     pom {
