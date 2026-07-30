@@ -14,3 +14,10 @@ updates:
       interval: "daily"
     labels:
       - dependencies
+
+  - package-ecosystem: "cargo"
+    directory: "/oniguruma-jni/native"
+    schedule:
+      interval: "daily"
+    labels:
+      - dependencies
