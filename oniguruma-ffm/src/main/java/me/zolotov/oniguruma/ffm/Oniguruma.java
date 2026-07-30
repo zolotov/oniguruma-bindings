@@ -8,6 +8,7 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Entry point to the Oniguruma FFM bindings.
@@ -20,7 +21,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  *
  * <p>Matching keeps one reusable native match region per thread that ever called
  * {@link #match(OnigurumaRegex, OnigurumaString, int, boolean, boolean)} on this instance;
- * {@link #close()} releases all of them.
+ * {@link #close()} releases all of them. Closing this instance itself is idempotent.
  */
 public final class Oniguruma implements AutoCloseable {
     // Layout of the single scratch block createRegex passes to onig_new:
@@ -46,9 +47,13 @@ public final class Oniguruma implements AutoCloseable {
     private final Queue<MemorySegment> regions = new ConcurrentLinkedQueue<>();
     private final ThreadLocal<MemorySegment> threadRegion = ThreadLocal.withInitial(this::newRegion);
 
-    // Reused createRegex scratch, pooled for close() the same way regions are.
+    // Reused createRegex scratch, pooled for close() the same way regions are: a thread that ever
+    // compiled a pattern holds its SCRATCH_CAPACITY block until this instance is closed, even
+    // after the thread itself dies.
     private final Queue<MemorySegment> scratchBuffers = new ConcurrentLinkedQueue<>();
     private final ThreadLocal<MemorySegment> threadScratch = ThreadLocal.withInitial(this::newScratch);
+
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     private Oniguruma(Arena libraryArena, OnigurumaNative nativeLib) {
         this.libraryArena = libraryArena;
@@ -210,20 +215,46 @@ public final class Oniguruma implements AutoCloseable {
 
     @Override
     public void close() {
-        try {
-            for (MemorySegment region = regions.poll(); region != null; region = regions.poll()) {
-                nativeLib.onigRegionFree.invokeExact(region, 1);
-            }
-            for (MemorySegment scratch = scratchBuffers.poll(); scratch != null; scratch = scratchBuffers.poll()) {
-                nativeLib.freeNative(scratch);
-            }
-        } catch (RuntimeException | Error e) {
-            throw e;
-        } catch (Throwable t) {
-            throw new OnigurumaException("Failed to free match region", t);
-        } finally {
-            libraryArena.close();
+        // Idempotent: a second close() must not free the pools again or re-close the arena.
+        if (!closed.compareAndSet(false, true)) {
+            return;
         }
+        // Free everything best-effort before closing the arena: aborting the loops on the first
+        // failure would leak every remaining region and scratch buffer, and the arena close below
+        // unloads the library they would have to be freed through.
+        Throwable failure = null;
+        for (MemorySegment region = regions.poll(); region != null; region = regions.poll()) {
+            try {
+                nativeLib.onigRegionFree.invokeExact(region, 1);
+            } catch (Throwable t) {
+                failure = addFailure(failure, t);
+            }
+        }
+        for (MemorySegment scratch = scratchBuffers.poll(); scratch != null; scratch = scratchBuffers.poll()) {
+            try {
+                nativeLib.freeNative(scratch);
+            } catch (Throwable t) {
+                failure = addFailure(failure, t);
+            }
+        }
+        libraryArena.close();
+        if (failure != null) {
+            if (failure instanceof RuntimeException e) {
+                throw e;
+            }
+            if (failure instanceof Error e) {
+                throw e;
+            }
+            throw new OnigurumaException("Failed to free pooled native memory", failure);
+        }
+    }
+
+    private static Throwable addFailure(Throwable failure, Throwable next) {
+        if (failure == null) {
+            return next;
+        }
+        failure.addSuppressed(next);
+        return failure;
     }
 
     private MemorySegment newScratch() {
