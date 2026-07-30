@@ -7,9 +7,14 @@ on:
       - "**"
     tags:
       - "**"
+  # Fork pull requests only ever trigger pull_request events -- without this they got no
+  # build at all. Same-repo branches are already covered by the push trigger, so the job
+  # condition below skips the duplicate pull_request run for them.
+  pull_request:
 
 jobs:
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork
     strategy:
       matrix:
         module: [oniguruma-jni, oniguruma-ffm]
