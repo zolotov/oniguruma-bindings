@@ -5,4 +5,5 @@ rootProject.name = "oniguruma-bindings"
 
 include("oniguruma-jni")
 include("oniguruma-ffm")
+include("koniguruma")
 include("benchmarks")

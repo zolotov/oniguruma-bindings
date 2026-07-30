@@ -1,14 +1,20 @@
 [versions]
 jmh = "1.37"
 junit = "6.1.2"
+kotlin = "2.4.10"
+kotlinx-coroutines = "1.11.0"
+oniguruma-ffm = "1.0.0"
 
 [libraries]
 jmh-core = { module = "org.openjdk.jmh:jmh-core", version.ref = "jmh" }
 jmh-generator-annprocess = { module = "org.openjdk.jmh:jmh-generator-annprocess", version.ref = "jmh" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+oniguruma-ffm = { module = "me.zolotov.oniguruma:oniguruma-ffm", version.ref = "oniguruma-ffm" }
 
 [plugins]
 changelog = { id = "org.jetbrains.changelog", version = "2.5.0" }
 jmh = { id = "me.champeau.jmh", version = "0.7.3" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 publish = { id = "com.vanniktech.maven.publish", version = "0.37.0" }

@@ -29,6 +29,15 @@ A Java Foreign Function & Memory wrapper backed by the upstream C library.
 - JPMS module: `me.zolotov.oniguruma.ffm`
 - Documentation: [`oniguruma-ffm/README.md`](./oniguruma-ffm/README.md)
 
+### `koniguruma`
+
+A Kotlin Multiplatform wrapper exposing one common API over the platform-specific backends
+(JVM via `oniguruma-ffm`).
+
+- Maven coordinate: `me.zolotov.oniguruma:koniguruma`
+- Kotlin package: `me.zolotov.oniguruma`
+- Documentation: [`koniguruma/README.md`](./koniguruma/README.md)
+
 ## Performance
 
 Both modules run the same JMH suite against shared inputs; the results are published
