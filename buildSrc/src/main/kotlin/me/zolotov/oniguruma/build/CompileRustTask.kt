@@ -18,8 +18,18 @@ abstract class CompileRustTask @Inject constructor(
     projectLayout: ProjectLayout,
     private val execOperations: ExecOperations,
 ): DefaultTask() {
-    @get:InputDirectory
+    @get:Internal
     val nativeDirectory = objectFactory.directoryProperty()
+
+    // Cargo writes its build output into <nativeDirectory>/target, so declaring the whole
+    // directory as the input would make the task's input contain its own output: never
+    // UP-TO-DATE, and the entire cargo target tree fingerprinted on every build. Track the
+    // sources without it. (.gitignore does not help here; Gradle does not consult it.)
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    val nativeSources = nativeDirectory.asFileTree.matching {
+        exclude("target/**")
+    }
 
     @get:Input
     val crateName = objectFactory.property<String>()
