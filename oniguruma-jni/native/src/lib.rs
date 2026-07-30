@@ -189,7 +189,9 @@ fn match_pattern(
 
     REGION.with(|r| {
         let mut region = r.borrow_mut();
-        region.clear();
+        // The reused region needs no clearing before the search: onig_search resize-clears a
+        // non-null region unconditionally on entry, on both the match and the mismatch paths
+        // (oniguruma 6.9.8, as bundled by onig_sys 69.8.1: regexec.c, search_in_range).
         let matched = regex.search_with_options(
             str,
             byte_offset as usize,
