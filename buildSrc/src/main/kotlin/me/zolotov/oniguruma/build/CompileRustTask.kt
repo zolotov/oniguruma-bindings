@@ -8,6 +8,7 @@ import org.gradle.api.tasks.*
 import org.gradle.kotlin.dsl.property
 import org.gradle.process.ExecOperations
 import java.io.ByteArrayOutputStream
+import java.nio.charset.Charset
 import java.nio.file.Path
 import javax.inject.Inject
 import kotlin.io.path.copyTo
@@ -75,7 +76,9 @@ internal fun ExecOperations.findCommand(command: String): Path? {
     val output = ByteArrayOutputStream()
     val result = exec {
         val cmd = when (currentOs()) {
-            Os.MACOS, Os.LINUX -> listOf("/bin/sh", "-c", "command -v $command")
+            // The command name is passed as a positional parameter, never interpolated into the
+            // shell script: interpolation would hand anything shell-special in the name to sh.
+            Os.MACOS, Os.LINUX -> listOf("/bin/sh", "-c", "command -v \"$1\"", "sh", command)
             Os.WINDOWS -> listOf("cmd.exe", "/c", "where", command)
         }
 
@@ -83,7 +86,12 @@ internal fun ExecOperations.findCommand(command: String): Path? {
         standardOutput = output
         isIgnoreExitValue = true
     }
-    val out = output.toString().trim().takeIf { it.isNotBlank() }
+    // The process writes its output in the platform's native encoding, which since JDK 18 is no
+    // longer what a bare toString() assumes (that now defaults to UTF-8).
+    val nativeCharset = System.getProperty("native.encoding")
+        ?.let { name -> runCatching { charset(name) }.getOrNull() }
+        ?: Charset.defaultCharset()
+    val out = output.toString(nativeCharset).trim().takeIf { it.isNotBlank() }
     return when {
         result.exitValue != 0 -> null
         out == null -> error("failed to resolve absolute path of command '$command'")
