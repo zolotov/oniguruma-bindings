@@ -8,8 +8,25 @@ import java.util.List;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class OnigurumaTest {
+    @Test
+    void matchRejectsByteOffsetOutOfRange() {
+        Oniguruma oniguruma = Oniguruma.createFromResources();
+        long regexPtr = oniguruma.createRegex("a".getBytes(StandardCharsets.UTF_8));
+        long textPtr = oniguruma.createString("abc".getBytes(StandardCharsets.UTF_8));
+        try {
+            assertThrows(IllegalArgumentException.class,
+                    () -> oniguruma.match(regexPtr, textPtr, 4, true, true));
+            assertThrows(IllegalArgumentException.class,
+                    () -> oniguruma.match(regexPtr, textPtr, -1, true, true));
+        } finally {
+            oniguruma.freeString(textPtr);
+            oniguruma.freeRegex(regexPtr);
+        }
+    }
+
     @Test
     void matching() {
         withMatcher("[0-9]+", matcher ->
