@@ -8,25 +8,45 @@ import java.nio.file.StandardCopyOption;
 import java.util.Locale;
 
 final class OnigurumaLoader {
-    private static volatile boolean loaded;
+    private static final String RESOURCES = "<bundled resources>";
+
+    // Where the native library was loaded from: null when not loaded yet, RESOURCES when the
+    // bundled library was extracted, otherwise the absolute path passed to loadFromFile. Loading
+    // again from the same source is a no-op; a different source is an error, because silently
+    // returning a binding backed by the previously loaded library is not what the caller asked for.
+    private static String loadedSource;
 
     private OnigurumaLoader() {
     }
 
     static synchronized void loadFromResources() {
-        if (!loaded) {
-            String libraryName = System.mapLibraryName("oniguruma_jni");
-            String resourcePath = determineResourcePath(libraryName);
-            Path extractedLib = extractLibraryToTemporaryDirectory(resourcePath, libraryName);
-            System.load(extractedLib.toAbsolutePath().toString());
-            loaded = true;
+        if (RESOURCES.equals(loadedSource)) {
+            return;
         }
+        requireNotLoaded("the bundled library");
+        String libraryName = System.mapLibraryName("oniguruma_jni");
+        String resourcePath = determineResourcePath(libraryName);
+        Path extractedLib = extractLibraryToTemporaryDirectory(resourcePath, libraryName);
+        System.load(extractedLib.toAbsolutePath().toString());
+        loadedSource = RESOURCES;
     }
 
     static synchronized void loadFromFile(Path path) {
-        if (!loaded) {
-            System.load(path.toAbsolutePath().toString());
-            loaded = true;
+        String requested = path.toAbsolutePath().toString();
+        if (requested.equals(loadedSource)) {
+            return;
+        }
+        requireNotLoaded(requested);
+        System.load(requested);
+        loadedSource = requested;
+    }
+
+    private static void requireNotLoaded(String requested) {
+        if (loadedSource != null) {
+            throw new IllegalStateException(
+                    "Oniguruma JNI library was already loaded from " + loadedSource +
+                            "; cannot also load " + requested + " in the same class loader"
+            );
         }
     }
 

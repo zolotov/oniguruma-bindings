@@ -4,6 +4,10 @@
 
 ### Changed
 
+- `Oniguruma.createFromFile` after the library was already loaded from a different source (the
+  bundled resources, or another path) now throws an `IllegalStateException` instead of silently
+  returning a binding backed by the previously loaded library. Repeating the same source stays
+  a no-op.
 - `freeRegex` and `freeString` treat the `0` handle as a no-op instead of raising a
   `RuntimeException`. `createRegex` and `createString` return `0` for a null input, so the
   natural create/free pairing no longer throws on it.
