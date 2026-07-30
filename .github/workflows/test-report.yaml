@@ -1,0 +1,35 @@
+# Publishes check runs from the JUnit XML that test.yaml uploads as artifacts.
+#
+# Isolated from the Tests workflow so that checks: write is never held while the Gradle
+# build, cargo build scripts and the tests themselves run -- the same privilege split
+# benchmarks.yaml uses for its comment-pr job. This also makes reporting work for fork
+# pull requests, whose own runs only get a read-only token.
+name: "Test Report"
+
+run-name: "Test Report for ${{ github.event.workflow_run.display_title }}"
+
+on:
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  # Download the test-results artifacts from the triggering run.
+  actions: read
+  checks: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish test report
+        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3
+        with:
+          # One check run per test-results-<module>-<os> artifact of the triggering run.
+          artifact: /test-results-(.*)/
+          name: "Tests Report ($1)"
+          path: "*.xml"
+          reporter: java-junit
