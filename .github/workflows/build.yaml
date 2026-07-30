@@ -39,7 +39,7 @@ jobs:
 
       - name: Setup Rust for x86_64
         if: inputs.module == 'oniguruma-jni'
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           target: x86_64-unknown-linux-gnu
@@ -49,7 +49,7 @@ jobs:
 
       - name: Setup Rust for aarch64
         if: inputs.module == 'oniguruma-jni'
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           target: aarch64-unknown-linux-gnu
@@ -88,7 +88,7 @@ jobs:
 
       - name: Setup Rust for x86_64
         if: inputs.module == 'oniguruma-jni'
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           target: x86_64-pc-windows-msvc
@@ -98,7 +98,7 @@ jobs:
 
       - name: Setup Rust for aarch64
         if: inputs.module == 'oniguruma-jni'
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           target: aarch64-pc-windows-msvc
@@ -137,7 +137,7 @@ jobs:
 
       - name: Setup Rust for x86_64
         if: inputs.module == 'oniguruma-jni'
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           target: x86_64-apple-darwin
@@ -147,7 +147,7 @@ jobs:
 
       - name: Setup Rust for aarch64
         if: inputs.module == 'oniguruma-jni'
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1
+        uses: actions-rust-lang/setup-rust-toolchain@46268bd060767258de96ed93c1251119784f2ab6 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           target: aarch64-apple-darwin
