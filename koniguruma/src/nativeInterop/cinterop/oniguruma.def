@@ -1,0 +1,10 @@
+# Bindings for the Oniguruma C library. The header include path, the C sources compiled into
+# this klib (-Xcompile-source), and their compiler options are wired up in build.gradle.kts:
+# they point into the unpacked source tarball under the project build directory, which a def
+# file cannot express.
+package = oniguruma
+headers = oniguruma.h
+
+# The sources are compiled into the klib and linked statically; without ONIG_STATIC the
+# Windows build of oniguruma.h declares the API dllimport.
+compilerOpts = -DONIG_STATIC

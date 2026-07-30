@@ -6,11 +6,6 @@ import com.vanniktech.maven.publish.SourcesJar
 import me.zolotov.oniguruma.build.*
 import me.zolotov.oniguruma.build.Platform
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
-import java.net.URI
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
-import java.util.HexFormat
 
 plugins {
     `java-library`
@@ -108,83 +103,11 @@ jmh {
     resultsFile = layout.buildDirectory.file("results/jmh/results.json")
 }
 
-val onigurumaVersion = "6.9.10"
-val onigurumaSourceUrl = "https://github.com/kkos/oniguruma/releases/download/v$onigurumaVersion/onig-$onigurumaVersion.tar.gz"
-
-// GitHub release assets are mutable, and these sources are compiled into the native libraries
-// bundled in the published artifact. Pin the tarball by content, not just by version, so a
-// re-uploaded asset fails the build instead of silently shipping.
-// Cross-checked against Homebrew's oniguruma formula for the same URL.
-val onigurumaSourceSha256 = "2a5cfc5ae259e4e97f86b68dfffc152cdaffe94e2060b770cb827238d769fc05"
-
-val onigurumaArchive = layout.buildDirectory.file("downloads/oniguruma-$onigurumaVersion.tar.gz")
-val onigurumaSourceRoot = layout.buildDirectory.dir("native-src/oniguruma")
-
-val downloadOnigurumaSource = tasks.register("downloadOnigurumaSource") {
-    inputs.property("onigurumaVersion", onigurumaVersion)
-    inputs.property("onigurumaSourceUrl", onigurumaSourceUrl)
-    inputs.property("onigurumaSourceSha256", onigurumaSourceSha256)
-    outputs.file(onigurumaArchive)
-
-    val sourceUrl = onigurumaSourceUrl
-    val expectedSha256 = onigurumaSourceSha256
-    val archiveFile = onigurumaArchive
-    doLast {
-        val destination = archiveFile.get().asFile
-        destination.parentFile.mkdirs()
-
-        // Download beside the destination and only move it into place once the digest matches:
-        // writing straight to the declared output meant an interrupted transfer left a truncated
-        // archive that Gradle then treated as an up-to-date output on every later build.
-        val partial = File(destination.parentFile, "${destination.name}.part")
-        partial.delete()
-        val connection = URI.create(sourceUrl).toURL().openConnection().apply {
-            connectTimeout = 30_000
-            readTimeout = 120_000
-        }
-        connection.getInputStream().use { input ->
-            partial.outputStream().use { output -> input.copyTo(output) }
-        }
-
-        val digest = MessageDigest.getInstance("SHA-256")
-        partial.inputStream().buffered().use { input ->
-            val buffer = ByteArray(64 * 1024)
-            while (true) {
-                val read = input.read(buffer)
-                if (read < 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        val actualSha256 = HexFormat.of().formatHex(digest.digest())
-        if (actualSha256 != expectedSha256) {
-            partial.delete()
-            throw GradleException(
-                """
-                Checksum mismatch for $sourceUrl
-                  expected SHA-256: $expectedSha256
-                  actual SHA-256:   $actualSha256
-                Refusing to build native libraries from unverified sources.
-                """.trimIndent()
-            )
-        }
-        Files.move(partial.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }
-}
-
-val unpackOnigurumaSource = tasks.register<Sync>("unpackOnigurumaSource") {
-    dependsOn(downloadOnigurumaSource)
-    from(tarTree(resources.gzip(onigurumaArchive)))
-    into(onigurumaSourceRoot)
-    eachFile {
-        val segments = relativePath.segments.drop(1)
-        if (segments.isEmpty()) {
-            exclude()
-        } else {
-            relativePath = RelativePath(true, *segments.toTypedArray())
-        }
-    }
-    includeEmptyDirs = false
-}
+// Download/unpack of the pinned Oniguruma source release is shared with :koniguruma;
+// see buildSrc's OnigurumaSource.kt for the version and checksum.
+val onigurumaSource = registerOnigurumaSource()
+val unpackOnigurumaSource = onigurumaSource.unpackTask
+val onigurumaSourceRoot = onigurumaSource.sourceRoot
 
 val currentPlatform = currentPlatform()
 val nativeBuildMode = providers.gradleProperty("nativeBuildMode")

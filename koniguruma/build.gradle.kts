@@ -1,8 +1,11 @@
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.SourcesJar
+import me.zolotov.oniguruma.build.OnigurumaSource
 import me.zolotov.oniguruma.build.UpdateReadmeVersionTask
+import me.zolotov.oniguruma.build.registerOnigurumaSource
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -40,6 +43,8 @@ repositories {
     mavenCentral()
 }
 
+val onigurumaSource = registerOnigurumaSource()
+
 kotlin {
     explicitApi()
 
@@ -61,6 +66,42 @@ kotlin {
         nodejs()
         compilerOptions {
             freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
+        }
+    }
+
+    // The native backend compiles Oniguruma itself into each target's cinterop klib: cinterop's
+    // -Xcompile-source builds the pinned C sources with the clang and sysroot bundled in the
+    // Kotlin/Native distribution, so no host C toolchain or per-target cross-compiler is needed,
+    // and the published klibs are self-contained. Apple targets still require a macOS host, as
+    // Kotlin/Native itself does.
+    val nativeTargets = listOf(
+        linuxX64(),
+        linuxArm64(),
+        macosX64(),
+        macosArm64(),
+        mingwX64(),
+    )
+
+    nativeTargets.forEach { target ->
+        target.compilations.getByName("main").cinterops.create("oniguruma") {
+            definitionFile.set(project.file("src/nativeInterop/cinterop/oniguruma.def"))
+
+            val sourceDir = onigurumaSource.sourceRoot.get().dir("src").asFile
+            val configDir = project.file("src/nativeInterop/cinterop/config")
+            includeDirs(sourceDir)
+
+            // -Xcompile-source requires the indirect C-call mode (KT-79749).
+            extraOpts("-Xccall-mode", "indirect")
+            // The source compiler driver is clang++; oniguruma is C, not C++.
+            extraOpts("-Xsource-compiler-option", "-xc")
+            extraOpts("-Xsource-compiler-option", "-std=gnu99")
+            extraOpts("-Xsource-compiler-option", "-I${configDir.absolutePath}")
+            extraOpts("-Xsource-compiler-option", "-I${sourceDir.absolutePath}")
+            extraOpts("-Xsource-compiler-option", "-DONIG_STATIC")
+            extraOpts("-Xsource-compiler-option", "-O2")
+            OnigurumaSource.LIBRARY_SOURCES.forEach { source ->
+                extraOpts("-Xcompile-source", sourceDir.resolve(source).absolutePath)
+            }
         }
     }
 
@@ -91,6 +132,10 @@ tasks.withType<Test>().configureEach {
     testLogging {
         exceptionFormat = TestExceptionFormat.FULL
     }
+}
+
+tasks.withType<CInteropProcess>().configureEach {
+    dependsOn(onigurumaSource.unpackTask)
 }
 
 mavenPublishing {

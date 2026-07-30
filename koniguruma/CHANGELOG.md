@@ -11,3 +11,6 @@
   wasm binary loads from `node_modules` automatically; browsers pass it to
   `createOniguruma(wasmBinary)`. Groups that did not participate in a match are reported clamped
   to the end of non-ASCII subject texts (vscode-textmate behavior) and as `-1, -1` otherwise.
+- Native targets (`linuxX64`, `linuxArm64`, `macosX64`, `macosArm64`, `mingwX64`): Oniguruma
+  6.9.10 is compiled from the pinned source release into each target's cinterop klib, so
+  consumers need no C toolchain and no system `libonig`.

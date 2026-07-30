@@ -10,6 +10,7 @@ backends.
 |--------|---------|
 | JVM    | [`oniguruma-ffm`](../oniguruma-ffm/README.md), Java Foreign Function & Memory over the upstream C library |
 | wasmJs | [`vscode-oniguruma`](https://github.com/microsoft/vscode-oniguruma), the `onig.wasm` build maintained for VS Code |
+| Native (`linuxX64`, `linuxArm64`, `macosX64`, `macosArm64`, `mingwX64`) | the upstream C library, compiled into the cinterop klib by the Kotlin/Native toolchain |
 
 ## Installation
 
@@ -85,3 +86,10 @@ Two behavioral notes, both shared with vscode-textmate, which runs on the same b
   match are reported clamped to the end of the text instead of `-1, -1`; the offset conversion
   layer inside `vscode-oniguruma` loses the distinction. Pure-ASCII texts report `-1, -1` as on
   the other platforms.
+
+### Native
+
+Nothing to configure: the pinned Oniguruma source release is downloaded (checksum-verified),
+compiled by the clang bundled in the Kotlin/Native distribution via cinterop's
+`-Xcompile-source`, and linked statically into the cinterop klib. Consumers need no C toolchain
+and no system `libonig`.
