@@ -32,7 +32,7 @@ A Java Foreign Function & Memory wrapper backed by the upstream C library.
 ### `koniguruma`
 
 A Kotlin Multiplatform wrapper exposing one common API over the platform-specific backends
-(JVM via `oniguruma-ffm`).
+(JVM via `oniguruma-ffm`, wasmJs via `vscode-oniguruma`'s `onig.wasm`).
 
 - Maven coordinate: `me.zolotov.oniguruma:koniguruma`
 - Kotlin package: `me.zolotov.oniguruma`

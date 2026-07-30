@@ -54,12 +54,26 @@ kotlin {
         }
     }
 
+    @OptIn(org.jetbrains.kotlin.gradle.ExperimentalWasmDsl::class)
+    wasmJs {
+        // Tests run under Node.js; the produced klib itself is environment-agnostic and browser
+        // consumers load onig.wasm through the createOniguruma(wasmBinary) overload.
+        nodejs()
+        compilerOptions {
+            freeCompilerArgs.add("-opt-in=kotlin.js.ExperimentalWasmJsInterop")
+        }
+    }
+
     jvmToolchain(25)
 
     sourceSets {
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
+        }
+
+        wasmJsMain.dependencies {
+            implementation(npm("vscode-oniguruma", "2.0.1"))
         }
 
         jvmMain.dependencies {

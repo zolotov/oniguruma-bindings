@@ -9,6 +9,7 @@ backends.
 | Target | Backend |
 |--------|---------|
 | JVM    | [`oniguruma-ffm`](../oniguruma-ffm/README.md), Java Foreign Function & Memory over the upstream C library |
+| wasmJs | [`vscode-oniguruma`](https://github.com/microsoft/vscode-oniguruma), the `onig.wasm` build maintained for VS Code |
 
 ## Installation
 
@@ -65,3 +66,22 @@ The FFM backend requires Java 25 and enabled native access:
 
 `createOniguruma()` loads the `libonig` bundled with `oniguruma-ffm`; the JVM-specific
 `createOniguruma(libraryPath)` overload loads it from an explicit file path instead.
+
+### wasmJs
+
+The backend drives the `onig.wasm` WebAssembly module through the `vscode-oniguruma` npm package.
+The module has to be loaded once per process:
+
+- Under Node.js, `createOniguruma()` reads `vscode-oniguruma/release/onig.wasm` from
+  `node_modules` automatically.
+- In browsers the application controls how assets are served, so pass the binary explicitly:
+  `createOniguruma(fetch("onig.wasm"))` (a `Response`, an `ArrayBuffer`, or an `ArrayBufferView`).
+
+Two behavioral notes, both shared with vscode-textmate, which runs on the same binding:
+
+- `vscode-oniguruma` addresses text with UTF-16 offsets and converts to Oniguruma's UTF-8 offsets
+  internally; `koniguruma` converts back, so the common byte-offset contract holds.
+- For subject texts containing non-ASCII characters, capture groups that did not participate in a
+  match are reported clamped to the end of the text instead of `-1, -1`; the offset conversion
+  layer inside `vscode-oniguruma` loses the distinction. Pure-ASCII texts report `-1, -1` as on
+  the other platforms.
