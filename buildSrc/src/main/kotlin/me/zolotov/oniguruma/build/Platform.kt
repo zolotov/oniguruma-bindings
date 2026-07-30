@@ -1,6 +1,7 @@
 package me.zolotov.oniguruma.build
 
 import org.gradle.api.tasks.Input
+import java.util.Locale
 
 data class Platform(
     @get:Input val os: Os,
@@ -18,7 +19,7 @@ enum class Arch(val normalizedName: String) {
 }
 
 fun currentOs(): Os  {
-    val os = System.getProperty("os.name").lowercase()
+    val os = System.getProperty("os.name").lowercase(Locale.ROOT)
     return when {
         os.contains("win") -> Os.WINDOWS
         os.contains("mac") || os.contains("darwin") -> Os.MACOS
@@ -27,7 +28,7 @@ fun currentOs(): Os  {
     }
 }
 
-fun currentArch(): Arch = when (val arch = System.getProperty("os.arch").lowercase()) {
+fun currentArch(): Arch = when (val arch = System.getProperty("os.arch").lowercase(Locale.ROOT)) {
     "x86_64", "amd64", "x64" -> Arch.x86_64
     "arm64", "aarch64" -> Arch.aarch64
     else -> error("unsupported arch '$arch'")
