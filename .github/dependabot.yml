@@ -14,3 +14,12 @@ updates:
       interval: "daily"
     labels:
       - dependencies
+
+  # onig_sys vendors the oniguruma C library, so this is the one dependency tree where
+  # upstream CVEs actually land in the published artifacts.
+  - package-ecosystem: "cargo"
+    directory: "/oniguruma-jni/native"
+    schedule:
+      interval: "daily"
+    labels:
+      - dependencies
