@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `createRegex` and `createString` no longer validate that their input is UTF-8; malformed bytes
+  now reach oniguruma instead of raising a `RuntimeException`. Valid UTF-8 was always the
+  documented expectation, and the `oniguruma-ffm` binding never validated. Callers that relied on
+  the error must validate before calling.
+
+### Performance
+
+- `createString` skips the UTF-8 validation pass, leaving a single copy into native memory.
+- Match offsets are collected into a reused per-thread buffer instead of a freshly allocated
+  vector on every match.
+
 ## [2.0.0] - 2026-06-18
 
 Reimplemented in Java and renamed. Every consumer has to touch imports to upgrade.
