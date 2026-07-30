@@ -25,7 +25,7 @@ use std::{
     ffi::c_void,
     panic::{catch_unwind, RefUnwindSafe},
     ptr, slice,
-    str::{self, Utf8Error},
+    str,
     sync::OnceLock,
 };
 
@@ -44,9 +44,10 @@ pub unsafe extern "system" fn JNI_OnLoad(raw_vm: *mut jni::sys::JavaVM, _: *mut 
     jni::sys::JNI_VERSION_1_8
 }
 
-// Reuse a Region per thread to avoid a malloc/free on every match call.
+// Reuse a Region and the offsets buffer per thread to avoid a malloc/free on every match call.
 thread_local! {
     static REGION: RefCell<Region> = RefCell::new(Region::new());
+    static OFFSETS: RefCell<Vec<i32>> = RefCell::new(Vec::new());
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -56,9 +57,6 @@ enum Error {
 
     #[error("Oniguruma Error: {0}")]
     Oniguruma(#[from] onig::Error),
-
-    #[error("Unable to read UTF8 string: {0}")]
-    Utf8(#[from] Utf8Error),
 
     #[error("String or pattern is null")]
     NullPatternOrString,
@@ -154,7 +152,10 @@ fn create_regex(env: &JNIEnv, pattern: jbyteArray) -> Result<jlong> {
     }
     let p = unsafe { JByteArray::from_raw(pattern) };
     let byte_array: Vec<u8> = env.convert_byte_array(p)?;
-    let pattern_str = str::from_utf8(&byte_array)?;
+    // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createRegex, matching
+    // the FFM binding, which hands the bytes to oniguruma without validating either. The bytes
+    // go straight through to onig_new; nothing on the Rust side inspects them as text.
+    let pattern_str = unsafe { str::from_utf8_unchecked(&byte_array) };
     let regex = Regex::with_options(
         pattern_str,
         RegexOptions::REGEX_OPTION_CAPTURE_GROUP,
@@ -197,19 +198,21 @@ fn match_pattern(
             Some(&mut *region),
         );
         if matched.is_some() {
-            let mut iterator = region.iter();
-
-            // Constructing a Vec containing all the start and end offsets one after the other.
-            //
-            // Region iterator can return None, but we still need to iterate region.len() times
-            // not matter what. This is not ideiomatic API, but oh well.
-            let offsets = (0..region.len())
-                .map(|_| iterator.next())
-                .map(|i| i.map(|(s, e)| (s as i32, e as i32)))
-                .map(|i| i.unwrap_or((-1, -1)))
-                .flat_map(|(s, e)| [s, e])
-                .collect::<Vec<_>>();
-            Ok(create_jni_int_array(env, &offsets)?.into_raw())
+            // Filling a reused buffer with all the start and end offsets one after the other;
+            // unmatched groups report (-1, -1).
+            OFFSETS.with(|o| {
+                let mut offsets = o.borrow_mut();
+                offsets.clear();
+                for i in 0..region.len() {
+                    let (s, e) = region
+                        .pos(i)
+                        .map(|(s, e)| (s as i32, e as i32))
+                        .unwrap_or((-1, -1));
+                    offsets.push(s);
+                    offsets.push(e);
+                }
+                Ok(create_jni_int_array(env, offsets.as_slice())?.into_raw())
+            })
         } else {
             Ok(ptr::null_mut())
         }
@@ -225,7 +228,12 @@ fn create_string(env: &mut JNIEnv, utf8: jbyteArray) -> Result<jlong> {
             // Critical: pins the Java heap object without copying (GC is suspended for duration).
             let elements = env.get_array_elements_critical(&p, ReleaseMode::NoCopyBack)?;
             let slice = slice::from_raw_parts(elements.as_ptr() as *const u8, elements.len());
-            let str = str::from_utf8(slice)?.to_string();
+            // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createString,
+            // matching the FFM binding, which copies the bytes into native memory without
+            // validating either. The bytes go straight through to onig_search; nothing on the
+            // Rust side inspects them as text. Skipping validation keeps createString a single
+            // copy, which is most of its cost for large texts.
+            let str = String::from_utf8_unchecked(slice.to_vec());
             drop(elements); // Release critical section before any further JNI calls.
             Ok(Box::into_raw(Box::<String>::new(str)) as jlong)
         }
