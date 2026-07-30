@@ -4,6 +4,9 @@
 
 ### Changed
 
+- `freeRegex` and `freeString` treat the `0` handle as a no-op instead of raising a
+  `RuntimeException`. `createRegex` and `createString` return `0` for a null input, so the
+  natural create/free pairing no longer throws on it.
 - `match` now rejects a `byteOffset` outside `[0, length]` with an `IllegalArgumentException`,
   matching the `oniguruma-ffm` binding. Previously a negative offset silently reported no match
   and a too-large offset raised a generic `RuntimeException` from the native layer.

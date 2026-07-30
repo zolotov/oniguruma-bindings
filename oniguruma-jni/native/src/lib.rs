@@ -66,9 +66,6 @@ enum Error {
 
     #[error("Panic happened: {0}")]
     Panic(String),
-
-    #[error("Null Pointer")]
-    NullPointer,
 }
 
 #[no_mangle]
@@ -139,14 +136,14 @@ pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeRegex(
 }
 
 fn free<T: 'static>(ptr: i64) -> Result<()> {
+    // Freeing the 0 handle is a no-op, like free(NULL): createRegex/createString return 0 for a
+    // null input, so the natural create/free pairing must not throw on it.
     if ptr != 0 {
         unsafe {
             drop(Box::<T>::from_raw(ptr as *mut _));
         }
-        Ok(())
-    } else {
-        Err(Error::NullPointer)
     }
+    Ok(())
 }
 
 fn create_regex(env: &JNIEnv, pattern: jbyteArray) -> Result<jlong> {
