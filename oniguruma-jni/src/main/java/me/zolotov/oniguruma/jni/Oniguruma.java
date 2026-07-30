@@ -16,6 +16,13 @@ public final class Oniguruma {
         return new Oniguruma();
     }
 
+    /**
+     * Searches {@code textPtr} from {@code byteOffset}.
+     *
+     * @throws IllegalArgumentException if {@code byteOffset} is outside {@code [0, length]} of the
+     *                                  string behind {@code textPtr}. This matches the
+     *                                  {@code oniguruma-ffm} binding's contract.
+     */
     public native int[] match(
             long regexPtr,
             long textPtr,
