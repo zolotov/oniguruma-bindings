@@ -5,6 +5,7 @@ import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.SourcesJar
 import me.zolotov.oniguruma.build.*
 import me.zolotov.oniguruma.build.Platform
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
 import org.jetbrains.changelog.ChangelogSectionUrlBuilder
 
 plugins {
@@ -80,12 +81,15 @@ dependencies {
     jmhAnnotationProcessor(libs.jmh.generator.annprocess)
 }
 
-tasks.test {
+tasks.withType<Test>().configureEach {
     useJUnitPlatform()
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion.set(JavaLanguageVersion.of(25))
     })
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    testLogging {
+        exceptionFormat = TestExceptionFormat.FULL
+    }
 }
 
 tasks.named("jmhRunBytecodeGenerator") {
