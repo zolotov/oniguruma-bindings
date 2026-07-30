@@ -17,6 +17,11 @@ on:
 permissions:
   contents: read
 
+# A superseded run's six matrix jobs have no value; cancel them like benchmarks.yaml does.
+concurrency:
+  group: tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   RUST_VERSION: 1.84.1
 

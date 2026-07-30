@@ -1,6 +1,11 @@
 name: "Build"
 permissions: {}
 
+# A superseded run's eight native-build jobs have no value; cancel them like benchmarks.yaml does.
+concurrency:
+  group: build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
