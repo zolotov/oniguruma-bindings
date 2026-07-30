@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Locale;
 
 final class OnigurumaLoader {
     private static volatile boolean loaded;
@@ -30,8 +31,10 @@ final class OnigurumaLoader {
     }
 
     private static String determineResourcePath(String libraryName) {
-        String os = System.getProperty("os.name").toLowerCase();
-        String arch = System.getProperty("os.arch").toLowerCase();
+        // Locale.ROOT: under a Turkish default locale "Linux".toLowerCase() is "lınux" with a
+        // dotless ı, and the contains("linux") check below would report the OS as unsupported.
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
 
         String osName;
         if (os.contains("win")) {
