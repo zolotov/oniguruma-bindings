@@ -37,10 +37,27 @@ static RUNTIME_EXCEPTION_CLASS: OnceLock<GlobalRef> = OnceLock::new();
 #[no_mangle]
 #[allow(non_snake_case)]
 pub unsafe extern "system" fn JNI_OnLoad(raw_vm: *mut jni::sys::JavaVM, _: *mut c_void) -> jint {
-    let vm = JavaVM::from_raw(raw_vm).unwrap();
-    let mut env: JNIEnv = vm.get_env().unwrap();
-    let cls = env.find_class("java/lang/RuntimeException").unwrap();
-    RUNTIME_EXCEPTION_CLASS.set(env.new_global_ref(cls).unwrap()).ok();
+    // Best effort only: the cache is an optimization (propagate_exception falls back to
+    // find_class), and a panic here would unwind out of an extern "system" frame and abort
+    // the JVM. Clear any pending exception a failed lookup leaves behind, so a merely
+    // uncached class cannot make System.load itself appear to fail.
+    if let Ok(vm) = JavaVM::from_raw(raw_vm) {
+        if let Ok(mut env) = vm.get_env() {
+            match env.find_class("java/lang/RuntimeException") {
+                Ok(cls) => match env.new_global_ref(cls) {
+                    Ok(global) => {
+                        RUNTIME_EXCEPTION_CLASS.set(global).ok();
+                    }
+                    Err(_) => {
+                        let _ = env.exception_clear();
+                    }
+                },
+                Err(_) => {
+                    let _ = env.exception_clear();
+                }
+            }
+        }
+    }
     jni::sys::JNI_VERSION_1_8
 }
 
@@ -274,21 +291,32 @@ impl<T> ToJavaException<T> for Result<T> {
         match self {
             Ok(r) => Some(r),
             Err(error) => {
-                if !env.exception_check().unwrap() {
+                // Best effort only: this runs outside catch_unwind, so a panic here would
+                // unwind out of an extern "C" frame and abort the JVM -- strictly worse than a
+                // lost error message. A failed find_class leaves its own pending exception,
+                // which is then what the Java caller sees.
+                // If we cannot even query the pending-exception state, assume one is pending
+                // and do not throw over it.
+                if !env.exception_check().unwrap_or(true) {
                     // Only throw if there is no pending exception yet.
+                    let message = error.to_string();
                     match &error {
                         // Caller errors surface as IllegalArgumentException, matching the FFM
                         // binding. This path is rare enough that the class lookup is fine.
                         Error::ByteOffsetOutOfRange { .. } => {
-                            let class = env.find_class("java/lang/IllegalArgumentException").unwrap();
-                            env.throw_new(class, error.to_string()).unwrap();
+                            if let Ok(class) = env.find_class("java/lang/IllegalArgumentException") {
+                                let _ = env.throw_new(class, &message);
+                            }
                         }
                         // Use the cached GlobalRef to avoid a class lookup on every throw.
                         _ => match RUNTIME_EXCEPTION_CLASS.get() {
-                            Some(cls) => env.throw_new(cls, error.to_string()).unwrap(),
+                            Some(cls) => {
+                                let _ = env.throw_new(cls, &message);
+                            }
                             None => {
-                                let class = env.find_class("java/lang/RuntimeException").unwrap();
-                                env.throw_new(class, error.to_string()).unwrap();
+                                if let Ok(class) = env.find_class("java/lang/RuntimeException") {
+                                    let _ = env.throw_new(class, &message);
+                                }
                             }
                         },
                     }
