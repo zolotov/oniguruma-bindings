@@ -1,9 +1,7 @@
 package me.zolotov.oniguruma.build
 
 import org.gradle.api.tasks.Input
-import org.gradle.internal.impldep.kotlinx.serialization.Serializable
 
-@Serializable
 data class Platform(
     @get:Input val os: Os,
     @get:Input val arch: Arch,
