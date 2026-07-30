@@ -61,6 +61,9 @@ enum Error {
     #[error("String or pattern is null")]
     NullPatternOrString,
 
+    #[error("byteOffset {offset} out of range [0, {length}]")]
+    ByteOffsetOutOfRange { offset: i32, length: usize },
+
     #[error("Panic happened: {0}")]
     Panic(String),
 
@@ -179,6 +182,16 @@ fn match_pattern(
     let regex = unsafe { &*(regex_ptr as *const Regex) };
     let str = unsafe { &*(string_ptr as *mut String) };
 
+    // The onig crate offsets the string pointer by `from` before it bounds-checks, so an
+    // out-of-range offset is out-of-bounds pointer arithmetic (UB) before it is anything else.
+    // Reject it here instead, with the same exception the FFM binding throws.
+    if byte_offset < 0 || byte_offset as usize > str.len() {
+        return Err(Error::ByteOffsetOutOfRange {
+            offset: byte_offset,
+            length: str.len(),
+        });
+    }
+
     let mut options = SearchOptions::SEARCH_OPTION_NONE;
     if match_begin_position == 0 {
         options |= unsafe { SearchOptions::from_bits_unchecked(ONIG_OPTION_NOT_BEGIN_POSITION) };
@@ -256,16 +269,24 @@ impl<T> ToJavaException<T> for Result<T> {
     fn propagate_exception(self, mut env: JNIEnv) -> Option<T> {
         match self {
             Ok(r) => Some(r),
-            Err(jni_error) => {
+            Err(error) => {
                 if !env.exception_check().unwrap() {
                     // Only throw if there is no pending exception yet.
-                    // Use the cached GlobalRef to avoid a class lookup on the error path.
-                    match RUNTIME_EXCEPTION_CLASS.get() {
-                        Some(cls) => env.throw_new(cls, jni_error.to_string()).unwrap(),
-                        None => {
-                            let class = env.find_class("java/lang/RuntimeException").unwrap();
-                            env.throw_new(class, jni_error.to_string()).unwrap();
+                    match &error {
+                        // Caller errors surface as IllegalArgumentException, matching the FFM
+                        // binding. This path is rare enough that the class lookup is fine.
+                        Error::ByteOffsetOutOfRange { .. } => {
+                            let class = env.find_class("java/lang/IllegalArgumentException").unwrap();
+                            env.throw_new(class, error.to_string()).unwrap();
                         }
+                        // Use the cached GlobalRef to avoid a class lookup on every throw.
+                        _ => match RUNTIME_EXCEPTION_CLASS.get() {
+                            Some(cls) => env.throw_new(cls, error.to_string()).unwrap(),
+                            None => {
+                                let class = env.find_class("java/lang/RuntimeException").unwrap();
+                                env.throw_new(class, error.to_string()).unwrap();
+                            }
+                        },
                     }
                 }
                 None

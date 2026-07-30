@@ -4,6 +4,9 @@
 
 ### Changed
 
+- `match` now rejects a `byteOffset` outside `[0, length]` with an `IllegalArgumentException`,
+  matching the `oniguruma-ffm` binding. Previously a negative offset silently reported no match
+  and a too-large offset raised a generic `RuntimeException` from the native layer.
 - `createRegex` and `createString` no longer validate that their input is UTF-8; malformed bytes
   now reach oniguruma instead of raising a `RuntimeException`. Valid UTF-8 was always the
   documented expectation, and the `oniguruma-ffm` binding never validated. Callers that relied on
