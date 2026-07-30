@@ -15,6 +15,14 @@ env:
 jobs:
   build-native-linux:
     runs-on: ubuntu-22.04
+    # The published .so links against the glibc it was built with, so the container pins the
+    # oldest supported floor (20.04 = glibc 2.31); bumping this image silently drops every
+    # distro older than the new base from an otherwise unchanged release. 20.04 left standard
+    # support in April 2025, which this job tolerates: the container only compiles the
+    # checked-in sources with distro toolchains and uploads the artifact -- it holds no
+    # credentials -- and a rotted apt mirror fails the build loudly rather than corrupting it.
+    # Raising the floor (or moving to a manylinux-style image) is a deliberate,
+    # changelog-worthy decision, not a routine image bump.
     container:
       image: ubuntu:20.04
       options: --user root
