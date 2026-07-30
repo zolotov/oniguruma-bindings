@@ -14,3 +14,6 @@
 - Native targets (`linuxX64`, `linuxArm64`, `macosX64`, `macosArm64`, `mingwX64`): Oniguruma
   6.9.10 is compiled from the pinned source release into each target's cinterop klib, so
   consumers need no C toolchain and no system `libonig`.
+- Android target (minSdk 26) delegating to `oniguruma-jni`. Applications bundle
+  `liboniguruma_jni.so` for their ABIs in `jniLibs`; `createOniguruma()` loads it from the
+  app's native library directory, with an Android-specific `createOniguruma(context)` overload.

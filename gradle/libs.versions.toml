@@ -1,9 +1,11 @@
 [versions]
+agp = "9.0.1"
 jmh = "1.37"
 junit = "6.1.2"
 kotlin = "2.4.10"
 kotlinx-coroutines = "1.11.0"
 oniguruma-ffm = "1.0.0"
+oniguruma-jni = "2.0.1"
 
 [libraries]
 jmh-core = { module = "org.openjdk.jmh:jmh-core", version.ref = "jmh" }
@@ -12,8 +14,10 @@ junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "jun
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 oniguruma-ffm = { module = "me.zolotov.oniguruma:oniguruma-ffm", version.ref = "oniguruma-ffm" }
+oniguruma-jni = { module = "me.zolotov.oniguruma:oniguruma-jni", version.ref = "oniguruma-jni" }
 
 [plugins]
+android-kmp-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 changelog = { id = "org.jetbrains.changelog", version = "2.5.0" }
 jmh = { id = "me.champeau.jmh", version = "0.7.3" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

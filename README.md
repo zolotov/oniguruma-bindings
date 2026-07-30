@@ -33,7 +33,7 @@ A Java Foreign Function & Memory wrapper backed by the upstream C library.
 
 A Kotlin Multiplatform wrapper exposing one common API over the platform-specific backends
 (JVM via `oniguruma-ffm`, wasmJs via `vscode-oniguruma`'s `onig.wasm`, native via the upstream
-C library compiled into the cinterop klib).
+C library compiled into the cinterop klib, Android via `oniguruma-jni`).
 
 - Maven coordinate: `me.zolotov.oniguruma:koniguruma`
 - Kotlin package: `me.zolotov.oniguruma`

@@ -11,6 +11,7 @@ backends.
 | JVM    | [`oniguruma-ffm`](../oniguruma-ffm/README.md), Java Foreign Function & Memory over the upstream C library |
 | wasmJs | [`vscode-oniguruma`](https://github.com/microsoft/vscode-oniguruma), the `onig.wasm` build maintained for VS Code |
 | Native (`linuxX64`, `linuxArm64`, `macosX64`, `macosArm64`, `mingwX64`) | the upstream C library, compiled into the cinterop klib by the Kotlin/Native toolchain |
+| Android | [`oniguruma-jni`](../oniguruma-jni/README.md), the JNI binding built on the `onig` Rust crate |
 
 ## Installation
 
@@ -93,3 +94,15 @@ Nothing to configure: the pinned Oniguruma source release is downloaded (checksu
 compiled by the clang bundled in the Kotlin/Native distribution via cinterop's
 `-Xcompile-source`, and linked statically into the cinterop klib. Consumers need no C toolchain
 and no system `libonig`.
+
+### Android
+
+The backend delegates to `oniguruma-jni` (FFM is not available on Android). `oniguruma-jni` does
+not ship Android binaries, so the application must bundle `liboniguruma_jni.so` — the JNI
+library built from [`oniguruma-jni/native`](../oniguruma-jni/native) for the app's supported
+ABIs (`aarch64-linux-android`, `x86_64-linux-android`, ...) — in its `jniLibs`.
+
+`createOniguruma()` loads the library from the application's native library directory, locating
+the application `Context` through the framework; pass a `Context` explicitly with the
+Android-specific `createOniguruma(context)` overload when one is at hand (and always from
+environments without a running framework, such as host-side unit tests).

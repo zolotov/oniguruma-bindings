@@ -9,6 +9,7 @@ import org.jetbrains.kotlin.gradle.tasks.CInteropProcess
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.publish)
     alias(libs.plugins.changelog)
 }
@@ -41,6 +42,7 @@ tasks.register<UpdateReadmeVersionTask>("updateReadmeVersion") {
 
 repositories {
     mavenCentral()
+    google()
 }
 
 val onigurumaSource = registerOnigurumaSource()
@@ -105,6 +107,23 @@ kotlin {
         }
     }
 
+    // The Android backend delegates to oniguruma-jni: FFM is unavailable on Android, and the
+    // JNI binding's native library can be packaged per-ABI in an app's jniLibs. No test
+    // compilations are configured: the common suite needs the Rust JNI library for the
+    // executing platform, which neither host nor device test infrastructure provides here.
+    androidLibrary {
+        namespace = "me.zolotov.oniguruma"
+        compileSdk = 36
+        // API 26 gives java.nio.file, which oniguruma-jni's public API uses.
+        minSdk = 26
+        compilations.configureEach {
+            compilerOptions.configure {
+                // Matches the Java 17 bytecode oniguruma-jni publishes.
+                jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+            }
+        }
+    }
+
     jvmToolchain(25)
 
     sourceSets {
@@ -115,6 +134,10 @@ kotlin {
 
         wasmJsMain.dependencies {
             implementation(npm("vscode-oniguruma", "2.0.1"))
+        }
+
+        androidMain.dependencies {
+            implementation(libs.oniguruma.jni)
         }
 
         jvmMain.dependencies {
