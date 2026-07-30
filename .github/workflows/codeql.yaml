@@ -35,6 +35,10 @@ jobs:
             build-mode: none
           - language: java-kotlin
             build-mode: manual
+          # The JNI binding's unsafe code lives in the Rust crate; leaving it unscanned
+          # would skip exactly the code most worth scanning.
+          - language: rust
+            build-mode: none
 
     steps:
       - name: Checkout repository
