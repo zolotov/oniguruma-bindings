@@ -1,7 +1,7 @@
 # Oniguruma Bindings
 
-[![JNI Maven Central version](https://img.shields.io/maven-central/v/me.zolotov.oniguruma/oniguruma-jni.svg)](https://search.maven.org/artifact/me.zolotov.oniguruma/oniguruma-jni)
-[![FFM Maven Central version](https://img.shields.io/maven-central/v/me.zolotov.oniguruma/oniguruma-ffm.svg)](https://search.maven.org/artifact/me.zolotov.oniguruma/oniguruma-ffm)
+[![oniguruma-jni on Maven Central](https://img.shields.io/maven-central/v/me.zolotov.oniguruma/oniguruma-jni?label=oniguruma-jni)](https://search.maven.org/artifact/me.zolotov.oniguruma/oniguruma-jni)
+[![oniguruma-ffm on Maven Central](https://img.shields.io/maven-central/v/me.zolotov.oniguruma/oniguruma-ffm?label=oniguruma-ffm)](https://search.maven.org/artifact/me.zolotov.oniguruma/oniguruma-ffm)
 [![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/zolotov/oniguruma-bindings/build.yaml)](https://github.com/zolotov/oniguruma-bindings/actions/workflows/build.yaml)
 [![GitHub License](https://img.shields.io/github/license/zolotov/oniguruma-bindings)](https://github.com/zolotov/oniguruma-bindings/blob/main/LICENSE)
 
