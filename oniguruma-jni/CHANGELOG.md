@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-07-30
+
 ### Changed
 
 - `createRegex` and `createString` no longer validate that their input is UTF-8; malformed bytes
@@ -96,3 +98,11 @@ First release, published to Maven Central as `me.zolotov.oniguruma:oniguruma-jni
   Gradle attribute. Individual per-platform native artifacts are also published and selectable
   through the `me.zolotov.oniguruma.platform` attribute.
 - Errors from Oniguruma are propagated to the JVM as exceptions rather than crashing the process.
+
+[Unreleased]: https://github.com/zolotov/oniguruma-bindings/compare/oniguruma-jni-2.0.1...HEAD
+[2.0.1]: https://github.com/zolotov/oniguruma-bindings/compare/2.0.0...oniguruma-jni-2.0.1
+[2.0.0]: https://github.com/zolotov/oniguruma-bindings/compare/1.0.3...2.0.0
+[1.0.3]: https://github.com/zolotov/oniguruma-bindings/compare/1.0.2...1.0.3
+[1.0.2]: https://github.com/zolotov/oniguruma-bindings/compare/1.0.1...1.0.2
+[1.0.1]: https://github.com/zolotov/oniguruma-bindings/compare/1.0.0...1.0.1
+[1.0.0]: https://github.com/zolotov/oniguruma-bindings/commits/1.0.0
