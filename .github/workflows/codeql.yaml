@@ -16,6 +16,12 @@ permissions:
   security-events: write
   packages: read
 
+# Cancel superseded runs. The event name is part of the group so a push to main and the
+# weekly scheduled scan never cancel each other.
+concurrency:
+  group: codeql-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
