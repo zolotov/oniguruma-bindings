@@ -83,8 +83,12 @@ Contributions are welcome! Please feel free to submit pull requests.
 
 ## Acknowledgments
 
-- Oniguruma library developers
-- onig-rs crate maintainers
+- [Oniguruma](https://github.com/kkos/oniguruma) — the regular expression library both backends build
+  on, written and maintained by [K.Kosako](https://github.com/kkos).
+- [rust-onig](https://github.com/rust-onig/rust-onig) — the [`onig`](https://crates.io/crates/onig)
+  crate the JNI backend is implemented with, maintained by
+  [Will Speak](https://github.com/iwillspeak), [Ivan Ivashchenko](https://github.com/defuz) and
+  [Vincent Prouillet](https://github.com/Keats).
 
 ## Note
 
