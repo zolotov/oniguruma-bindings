@@ -194,18 +194,19 @@ fn match_pattern(
     }
 
     let mut options = SearchOptions::SEARCH_OPTION_NONE;
+    // `SearchOptions` has no named constants for these two, so they go in as raw bits.
     if match_begin_position == 0 {
-        options |= unsafe { SearchOptions::from_bits_unchecked(ONIG_OPTION_NOT_BEGIN_POSITION) };
+        options |= SearchOptions::from_bits_retain(ONIG_OPTION_NOT_BEGIN_POSITION);
     }
     if match_begin_string == 0 {
-        options |= unsafe { SearchOptions::from_bits_unchecked(ONIG_OPTION_NOT_BEGIN_STRING) };
+        options |= SearchOptions::from_bits_retain(ONIG_OPTION_NOT_BEGIN_STRING);
     }
 
     REGION.with(|r| {
         let mut region = r.borrow_mut();
         // The reused region needs no clearing before the search: onig_search resize-clears a
         // non-null region unconditionally on entry, on both the match and the mismatch paths
-        // (oniguruma 6.9.8, as bundled by onig_sys 69.8.1: regexec.c, search_in_range).
+        // (regexec.c, search_in_range).
         let matched = regex.search_with_options(
             str,
             byte_offset as usize,

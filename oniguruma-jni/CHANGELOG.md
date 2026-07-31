@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The bundled regex engine moved from oniguruma 6.9.8 to 6.9.10 (`onig` 6.4.0 to 6.5.3, `onig_sys`
+  69.8.1 to 69.9.3). This picks up upstream engine fixes and a checked `usize` to `c_int` cast in
+  `Region::reserve` that could overflow.
+
 ## [2.0.1] - 2026-07-30
 
 ### Changed
