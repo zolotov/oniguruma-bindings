@@ -21,7 +21,7 @@ use jni::{
     objects::{Global, JByteArray, JClass, JIntArray},
     refs::Reference,
     strings::JNIString,
-    sys::{jboolean, jint, jlong, jsize},
+    sys::{jboolean, jbyteArray, jint, jintArray, jlong, jsize},
     Env, EnvUnowned,
 };
 use onig::Regex;
@@ -150,7 +150,8 @@ fn create_regex(env: &Env, pattern: &JByteArray) -> Result<jlong> {
     if pattern.is_null() {
         return Ok(0);
     }
-    let byte_array: Vec<u8> = env.convert_byte_array(pattern)?;
+    // SAFETY: `pattern` is a non-null `byte[]` reference the JVM just handed us.
+    let byte_array = unsafe { copy_byte_array(env.get_raw(), pattern.as_raw()) };
     // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createRegex, matching
     // the FFM binding, which hands the bytes to oniguruma without validating either. The bytes
     // go straight through to onig_new; nothing on the Rust side inspects them as text.
@@ -164,7 +165,7 @@ fn create_regex(env: &Env, pattern: &JByteArray) -> Result<jlong> {
 }
 
 fn match_pattern<'local>(
-    env: &mut Env<'local>,
+    env: &Env<'local>,
     regex_ptr: jlong,
     string_ptr: jlong,
     byte_offset: jint,
@@ -224,7 +225,7 @@ fn match_pattern<'local>(
                     offsets.push(s);
                     offsets.push(e);
                 }
-                create_jni_int_array(env, offsets.as_slice())
+                Ok(create_jni_int_array(env, offsets.as_slice()))
             })
         } else {
             // A null array reference is how a mismatch is reported to Java.
@@ -237,42 +238,73 @@ fn create_string(env: &Env, utf8: &JByteArray) -> Result<jlong> {
     if utf8.is_null() {
         Result::<jlong>::Ok(0)
     } else {
-        let len = utf8.len(env)?;
-        let mut bytes: Vec<u8> = Vec::with_capacity(len);
-        unsafe {
-            // GetByteArrayRegion copies straight into the Vec's spare capacity. Compared to
-            // GetPrimitiveArrayCritical this needs no critical section (nothing pins the Java
-            // heap, so the GC is never blocked) and one fewer JNI transition. Called through the
-            // raw vtable because JByteArray::get_region wants an initialized &mut [jbyte] (a
-            // zeroing pass the copy would immediately overwrite) and follows up with an
-            // ExceptionCheck call that is pointless here: the only exception this JNI function
-            // can raise is ArrayIndexOutOfBounds, and [0, len) is exact by construction since
-            // Java arrays cannot resize after GetArrayLength.
-            let raw_env = env.get_raw();
-            let interface = *raw_env;
-            ((*interface).v1_1.GetByteArrayRegion)(
-                raw_env,
-                utf8.as_raw(),
-                0,
-                len as jsize,
-                bytes.as_mut_ptr().cast(),
-            );
-            bytes.set_len(len);
-            // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createString,
-            // matching the FFM binding, which copies the bytes into native memory without
-            // validating either. The bytes go straight through to onig_search; nothing on the
-            // Rust side inspects them as text. Skipping validation keeps createString a single
-            // copy, which is most of its cost for large texts.
-            let str = String::from_utf8_unchecked(bytes);
-            Ok(Box::into_raw(Box::<String>::new(str)) as jlong)
-        }
+        // SAFETY: `utf8` is a non-null `byte[]` reference the JVM just handed us.
+        let bytes = unsafe { copy_byte_array(env.get_raw(), utf8.as_raw()) };
+        // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createString,
+        // matching the FFM binding, which copies the bytes into native memory without
+        // validating either. The bytes go straight through to onig_search; nothing on the
+        // Rust side inspects them as text. Skipping validation keeps createString a single
+        // copy, which is most of its cost for large texts.
+        let str = unsafe { String::from_utf8_unchecked(bytes) };
+        Ok(Box::into_raw(Box::<String>::new(str)) as jlong)
     }
 }
 
-fn create_jni_int_array<'local>(env: &mut Env<'local>, input: &[i32]) -> Result<JIntArray<'local>> {
-    let array = JIntArray::new(env, input.len())?;
-    array.set_region(env, 0, input)?;
-    Ok(array)
+/// Copies a Java `byte[]` into a fresh `Vec<u8>`.
+///
+/// Two JNI calls and no zeroing pass: `Vec::with_capacity` leaves the buffer uninitialized and
+/// `GetByteArrayRegion` copies straight into it. `Env::convert_byte_array` instead zeroes a
+/// `vec![0u8; len]` that the copy immediately overwrites, and wraps both JNI calls in
+/// `ExceptionCheck` calls (one before each, one after the region copy). Neither call can fail
+/// here: `GetArrayLength` has no failure mode, and `[0, len)` is exact by construction because a
+/// Java array cannot resize after `GetArrayLength` returned its length.
+///
+/// # Safety
+///
+/// `raw_env` must be the JNI environment of the calling thread and `array` a non-null local
+/// reference to a `byte[]`.
+unsafe fn copy_byte_array(raw_env: *mut jni::sys::JNIEnv, array: jbyteArray) -> Vec<u8> {
+    let interface = *raw_env;
+    let len = ((*interface).v1_1.GetArrayLength)(raw_env, array) as usize;
+    let mut bytes: Vec<u8> = Vec::with_capacity(len);
+    if len > 0 {
+        // Skipped when empty so the dangling pointer of a zero-capacity Vec never reaches JNI.
+        ((*interface).v1_1.GetByteArrayRegion)(
+            raw_env,
+            array,
+            0,
+            len as jsize,
+            bytes.as_mut_ptr().cast(),
+        );
+    }
+    bytes.set_len(len);
+    bytes
+}
+
+/// Creates a Java `int[]` holding `values`.
+///
+/// Returns null if `NewIntArray` fails, leaving the pending `OutOfMemoryError` for the JVM to
+/// see. `SetIntArrayRegion` cannot throw over `[0, len)` of an array just allocated with exactly
+/// that length, so both calls skip the `ExceptionCheck` pairs that `JIntArray::new` and
+/// `JPrimitiveArray::set_region` add, along with the `Env::assert_top` thread-local read.
+///
+/// # Safety
+///
+/// `raw_env` must be the JNI environment of the calling thread.
+unsafe fn new_int_array(raw_env: *mut jni::sys::JNIEnv, values: &[jint]) -> jintArray {
+    let interface = *raw_env;
+    let len = values.len() as jsize;
+    let array = ((*interface).v1_1.NewIntArray)(raw_env, len);
+    if !array.is_null() {
+        ((*interface).v1_1.SetIntArrayRegion)(raw_env, array, 0, len, values.as_ptr());
+    }
+    array
+}
+
+fn create_jni_int_array<'local>(env: &Env<'local>, input: &[jint]) -> JIntArray<'local> {
+    // SAFETY: `new_int_array` returns a fresh local reference to an `int[]` (or null), created in
+    // this thread's environment, which is exactly what `from_raw` requires.
+    unsafe { JIntArray::from_raw(env, new_int_array(env.get_raw(), input)) }
 }
 
 /// Turns native method failures into Java exceptions.
