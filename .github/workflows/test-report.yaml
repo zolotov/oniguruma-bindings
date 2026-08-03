@@ -22,6 +22,14 @@ permissions:
 
 jobs:
   report:
+    # Only runs that actually executed the tests leave test-results artifacts behind, and
+    # test-reporter fails when it finds none. Two kinds of Tests run never upload any:
+    # same-repo pull_request runs, whose test job is skipped as a duplicate of the push
+    # run, and runs superseded by cancel-in-progress. Both must be no-ops here, not red
+    # Test Report runs.
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'success' ||
+          github.event.workflow_run.conclusion == 'failure' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -33,3 +41,7 @@ jobs:
           name: "Tests Report ($1)"
           path: "*.xml"
           reporter: java-junit
+          # A Tests run that failed before any test executed -- broken Gradle config, a
+          # cargo build script error -- is reported red by Tests itself; an empty report
+          # here must not add a second, more confusing failure.
+          fail-on-empty: false
