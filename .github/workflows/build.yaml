@@ -10,7 +10,7 @@ on:
         type: string
 
 env:
-  RUST_VERSION: 1.84.1
+  RUST_VERSION: 1.85.0
 
 jobs:
   build-native-linux:
