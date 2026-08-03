@@ -9,37 +9,38 @@
 //! 3. the method name is separated from the class name with an underscore
 //!
 //! So, for example `java.lang.System::gc()` becomes `Java_java_lang_System_gc`.
+//!
+//! Since jni 0.22 the environment a native method receives is an `EnvUnowned`, which carries no
+//! JNI methods of its own; `EnvUnowned::with_env` upgrades it to a `&mut Env` for the duration of
+//! a closure and catches any panic. Errors and panics are turned into Java exceptions by the
+//! [`ThrowMapped`] error policy.
 
 use jni::{
-    objects::{GlobalRef, JByteArray, JClass, JPrimitiveArray, ReleaseMode},
-    sys::{jboolean, jbyteArray, jint, jintArray, jlong},
-    JavaVM, JNIEnv,
+    errors::ErrorPolicy,
+    jni_str,
+    objects::{Global, JByteArray, JClass, JIntArray, ReleaseMode},
+    refs::Reference,
+    strings::JNIString,
+    sys::{jboolean, jint, jlong},
+    Env, EnvUnowned,
 };
 use onig::Regex;
 use onig::{RegexOptions, Region, SearchOptions, Syntax};
 use onig_sys::{ONIG_OPTION_NOT_BEGIN_POSITION, ONIG_OPTION_NOT_BEGIN_STRING};
-use std::{
-    any::Any,
-    cell::RefCell,
-    ffi::c_void,
-    panic::{catch_unwind, RefUnwindSafe},
-    ptr, slice,
-    str,
-    sync::OnceLock,
-};
+use std::{any::Any, cell::RefCell, ffi::c_void, slice, str, sync::OnceLock};
 
 type Result<T> = std::result::Result<T, Error>;
 
-// Cache a GlobalRef to RuntimeException so the error path avoids a class lookup on every throw.
-static RUNTIME_EXCEPTION_CLASS: OnceLock<GlobalRef> = OnceLock::new();
+// Cache a Global to RuntimeException so the error path avoids a class lookup on every throw.
+// Filled on the first throw rather than in JNI_OnLoad: an `Env` can only be borrowed from a
+// thread attachment now, and there is no attachment to borrow from during library load.
+static RUNTIME_EXCEPTION_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
 
 #[no_mangle]
 #[allow(non_snake_case)]
-pub unsafe extern "system" fn JNI_OnLoad(raw_vm: *mut jni::sys::JavaVM, _: *mut c_void) -> jint {
-    let vm = JavaVM::from_raw(raw_vm).unwrap();
-    let mut env: JNIEnv = vm.get_env().unwrap();
-    let cls = env.find_class("java/lang/RuntimeException").unwrap();
-    RUNTIME_EXCEPTION_CLASS.set(env.new_global_ref(cls).unwrap()).ok();
+pub extern "system" fn JNI_OnLoad(_: *mut jni::sys::JavaVM, _: *mut c_void) -> jint {
+    // jni initializes itself on the first `EnvUnowned::with_env`, so all this hook has to do is
+    // report the JNI version the library needs.
     jni::sys::JNI_VERSION_1_8
 }
 
@@ -65,37 +66,33 @@ enum Error {
     #[error("byteOffset {offset} out of range [0, {length}]")]
     ByteOffsetOutOfRange { offset: i32, length: usize },
 
-    #[error("Panic happened: {0}")]
-    Panic(String),
-
     #[error("Null Pointer")]
     NullPointer,
 }
 
 #[no_mangle]
-pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_createRegex(
-    env: JNIEnv,
-    _: JClass,
-    pattern: jbyteArray,
+pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_createRegex<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _: JClass<'caller>,
+    pattern: JByteArray<'caller>,
 ) -> jlong {
-    try_catch(|| create_regex(&env, pattern))
-        .propagate_exception(env)
-        .unwrap_or_default()
+    env.with_env(|env| create_regex(env, &pattern))
+        .resolve::<ThrowMapped>()
 }
 
 #[no_mangle]
-pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_match(
-    env: JNIEnv,
-    _: JClass,
+pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_match<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _: JClass<'caller>,
     regex_ptr: jlong,
     string_ptr: jlong,
     byte_offset: jint,
     match_begin_position: jboolean,
     match_begin_string: jboolean,
-) -> jintArray {
-    try_catch(|| {
+) -> JIntArray<'caller> {
+    env.with_env(|env| {
         match_pattern(
-            &env,
+            env,
             regex_ptr,
             string_ptr,
             byte_offset,
@@ -103,40 +100,39 @@ pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_match(
             match_begin_string,
         )
     })
-    .propagate_exception(env)
-    .unwrap_or(ptr::null_mut())
+    .resolve::<ThrowMapped>()
 }
 
 #[no_mangle]
-pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_createString(
-    mut env: JNIEnv,
-    _: JClass,
-    utf8: jbyteArray,
+pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_createString<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _: JClass<'caller>,
+    utf8: JByteArray<'caller>,
 ) -> jlong {
-    // This is the only place where we can not use try_catch(), because &mut JNIEnv can not cross FFI boundary
-    create_string(&mut env, utf8)
-        .propagate_exception(env)
-        .unwrap_or_default()
+    env.with_env(|env| create_string(env, &utf8))
+        .resolve::<ThrowMapped>()
 }
 
 #[no_mangle]
-pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeString(
-    env: JNIEnv,
-    _: JClass,
+pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeString<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _: JClass<'caller>,
     ptr: jlong,
 ) {
     // Be careful to restore the owned type from the pointer
-    try_catch(|| free::<String>(ptr)).propagate_exception(env);
+    env.with_env(|_| free::<String>(ptr))
+        .resolve::<ThrowMapped>()
 }
 
 #[no_mangle]
-pub extern "C" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeRegex(
-    env: JNIEnv,
-    _: JClass,
+pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeRegex<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _: JClass<'caller>,
     ptr: jlong,
 ) {
     // Be careful to restore the owned type from the pointer
-    try_catch(|| free::<Regex>(ptr)).propagate_exception(env);
+    env.with_env(|_| free::<Regex>(ptr))
+        .resolve::<ThrowMapped>()
 }
 
 fn free<T: 'static>(ptr: i64) -> Result<()> {
@@ -150,12 +146,11 @@ fn free<T: 'static>(ptr: i64) -> Result<()> {
     }
 }
 
-fn create_regex(env: &JNIEnv, pattern: jbyteArray) -> Result<jlong> {
+fn create_regex(env: &Env, pattern: &JByteArray) -> Result<jlong> {
     if pattern.is_null() {
         return Ok(0);
     }
-    let p = unsafe { JByteArray::from_raw(pattern) };
-    let byte_array: Vec<u8> = env.convert_byte_array(p)?;
+    let byte_array: Vec<u8> = env.convert_byte_array(pattern)?;
     // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createRegex, matching
     // the FFM binding, which hands the bytes to oniguruma without validating either. The bytes
     // go straight through to onig_new; nothing on the Rust side inspects them as text.
@@ -168,14 +163,14 @@ fn create_regex(env: &JNIEnv, pattern: jbyteArray) -> Result<jlong> {
     Ok(Box::into_raw(Box::<Regex>::new(regex)) as jlong)
 }
 
-fn match_pattern(
-    env: &JNIEnv,
+fn match_pattern<'local>(
+    env: &mut Env<'local>,
     regex_ptr: jlong,
     string_ptr: jlong,
     byte_offset: jint,
     match_begin_position: jboolean,
     match_begin_string: jboolean,
-) -> Result<jintArray> {
+) -> Result<JIntArray<'local>> {
     // Creating a null reference is UB even if it is not used
     if regex_ptr == 0 || string_ptr == 0 {
         return Err(Error::NullPatternOrString);
@@ -228,22 +223,22 @@ fn match_pattern(
                     offsets.push(s);
                     offsets.push(e);
                 }
-                Ok(create_jni_int_array(env, offsets.as_slice())?.into_raw())
+                create_jni_int_array(env, offsets.as_slice())
             })
         } else {
-            Ok(ptr::null_mut())
+            // A null array reference is how a mismatch is reported to Java.
+            Ok(JIntArray::null())
         }
     })
 }
 
-fn create_string(env: &mut JNIEnv, utf8: jbyteArray) -> Result<jlong> {
+fn create_string(env: &Env, utf8: &JByteArray) -> Result<jlong> {
     if utf8.is_null() {
         Result::<jlong>::Ok(0)
     } else {
         unsafe {
-            let p = JByteArray::from_raw(utf8);
             // Critical: pins the Java heap object without copying (GC is suspended for duration).
-            let elements = env.get_array_elements_critical(&p, ReleaseMode::NoCopyBack)?;
+            let elements = utf8.get_elements_critical(env, ReleaseMode::NoCopyBack)?;
             let slice = slice::from_raw_parts(elements.as_ptr() as *const u8, elements.len());
             // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createString,
             // matching the FFM binding, which copies the bytes into native memory without
@@ -257,55 +252,83 @@ fn create_string(env: &mut JNIEnv, utf8: jbyteArray) -> Result<jlong> {
     }
 }
 
-fn create_jni_int_array<'a>(env: &JNIEnv<'a>, input: &[i32]) -> Result<JPrimitiveArray<'a, i32>> {
-    let array = env.new_int_array(input.len() as i32)?;
-    env.set_int_array_region(&array, 0, input)?;
+fn create_jni_int_array<'local>(env: &mut Env<'local>, input: &[i32]) -> Result<JIntArray<'local>> {
+    let array = JIntArray::new(env, input.len())?;
+    array.set_region(env, 0, input)?;
     Ok(array)
 }
 
-trait ToJavaException<T> {
-    fn propagate_exception(self, env: JNIEnv) -> Option<T>;
-}
+/// Turns native method failures into Java exceptions.
+///
+/// `EnvUnowned::with_env` already wraps the closure in a `catch_unwind`, so a panic arrives here
+/// as [`ErrorPolicy::on_panic`] instead of having to be caught by hand.
+struct ThrowMapped;
 
-impl<T> ToJavaException<T> for Result<T> {
-    fn propagate_exception(self, mut env: JNIEnv) -> Option<T> {
-        match self {
-            Ok(r) => Some(r),
-            Err(error) => {
-                if !env.exception_check().unwrap() {
-                    // Only throw if there is no pending exception yet.
-                    match &error {
-                        // Caller errors surface as IllegalArgumentException, matching the FFM
-                        // binding. This path is rare enough that the class lookup is fine.
-                        Error::ByteOffsetOutOfRange { .. } => {
-                            let class = env.find_class("java/lang/IllegalArgumentException").unwrap();
-                            env.throw_new(class, error.to_string()).unwrap();
-                        }
-                        // Use the cached GlobalRef to avoid a class lookup on every throw.
-                        _ => match RUNTIME_EXCEPTION_CLASS.get() {
-                            Some(cls) => env.throw_new(cls, error.to_string()).unwrap(),
-                            None => {
-                                let class = env.find_class("java/lang/RuntimeException").unwrap();
-                                env.throw_new(class, error.to_string()).unwrap();
-                            }
-                        },
-                    }
+impl<T: Default> ErrorPolicy<T, Error> for ThrowMapped {
+    type Captures<'unowned_env_local: 'native_method, 'native_method> = ();
+
+    fn on_error<'unowned_env_local: 'native_method, 'native_method>(
+        env: &mut Env<'unowned_env_local>,
+        _captures: &mut Self::Captures<'unowned_env_local, 'native_method>,
+        error: Error,
+    ) -> jni::errors::Result<T> {
+        // Only throw if there is no pending exception yet.
+        if !env.exception_check() {
+            let message = JNIString::from(error.to_string());
+            match error {
+                // Caller errors surface as IllegalArgumentException, matching the FFM binding.
+                // This path is rare enough that the class lookup is fine.
+                Error::ByteOffsetOutOfRange { .. } => {
+                    let _ = env.throw_new(jni_str!("java/lang/IllegalArgumentException"), &message);
                 }
-                None
+                _ => throw_runtime_exception(env, &message),
             }
         }
+        Ok(T::default())
+    }
+
+    fn on_panic<'unowned_env_local: 'native_method, 'native_method>(
+        env: &mut Env<'unowned_env_local>,
+        _captures: &mut Self::Captures<'unowned_env_local, 'native_method>,
+        payload: Box<dyn Any + Send + 'static>,
+    ) -> jni::errors::Result<T> {
+        if !env.exception_check() {
+            let message =
+                JNIString::from(format!("Panic happened: {}", describe_panic(&*payload)));
+            throw_runtime_exception(env, &message);
+        }
+        Ok(T::default())
     }
 }
 
-// Wraps all panics into Result with a string description of a problem
-fn try_catch<T>(f: impl Fn() -> Result<T> + RefUnwindSafe) -> Result<T> {
-    catch_unwind(&f).map_err(downcast_error)?
+fn throw_runtime_exception(env: &mut Env, message: &JNIString) {
+    // Use the cached Global to avoid a class lookup on every throw. The string descriptor of the
+    // fallback resolves to RuntimeException as well, so both paths throw the same class.
+    let class = runtime_exception_class(env);
+    let _ = match class {
+        Ok(class) => env.throw_new(class, message),
+        Err(_) => env.throw_new(jni_str!("java/lang/RuntimeException"), message),
+    };
 }
 
-fn downcast_error(e: Box<dyn Any + Send>) -> Error {
-    if let Some(description) = e.downcast_ref::<String>() {
-        Error::Panic(description.to_string())
+fn runtime_exception_class(env: &mut Env) -> jni::errors::Result<&'static Global<JClass<'static>>> {
+    if let Some(class) = RUNTIME_EXCEPTION_CLASS.get() {
+        return Ok(class);
+    }
+    let class = env.find_class(jni_str!("java/lang/RuntimeException"))?;
+    // A racing thread may win the set(); the loser's Global is simply dropped.
+    let _ = RUNTIME_EXCEPTION_CLASS.set(env.new_global_ref(&class)?);
+    Ok(RUNTIME_EXCEPTION_CLASS
+        .get()
+        .expect("cache was just populated"))
+}
+
+fn describe_panic(payload: &(dyn Any + Send + 'static)) -> String {
+    if let Some(description) = payload.downcast_ref::<String>() {
+        description.clone()
+    } else if let Some(description) = payload.downcast_ref::<&'static str>() {
+        (*description).to_string()
     } else {
-        Error::Panic("Unknown".to_string())
+        "Unknown".to_string()
     }
 }
