@@ -190,10 +190,11 @@ fn match_pattern<'local>(
 
     let mut options = SearchOptions::SEARCH_OPTION_NONE;
     // `SearchOptions` has no named constants for these two, so they go in as raw bits.
-    if match_begin_position == 0 {
+    // Note that `jboolean` is a `bool` since jni-sys 0.4, not a `u8`.
+    if !match_begin_position {
         options |= SearchOptions::from_bits_retain(ONIG_OPTION_NOT_BEGIN_POSITION);
     }
-    if match_begin_string == 0 {
+    if !match_begin_string {
         options |= SearchOptions::from_bits_retain(ONIG_OPTION_NOT_BEGIN_STRING);
     }
 
