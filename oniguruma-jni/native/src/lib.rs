@@ -11,14 +11,17 @@
 //! So, for example `java.lang.System::gc()` becomes `Java_java_lang_System_gc`.
 //!
 //! Since jni 0.22 the environment a native method receives is an `EnvUnowned`, which carries no
-//! JNI methods of its own; `EnvUnowned::with_env` upgrades it to a `&mut Env` for the duration of
-//! a closure and catches any panic. Errors and panics are turned into Java exceptions by the
-//! [`ThrowMapped`] error policy.
+//! JNI methods of its own. Upgrading it to an `Env` with `EnvUnowned::with_env` costs attach-guard
+//! bookkeeping on every call, and the safe `Env` wrappers wrap each JNI function in
+//! `ExceptionCheck` calls, which together cost more than the JNI work these methods do. So the
+//! bodies here call JNI through the raw vtable, guard against panics with [`try_catch`], and
+//! materialize an `Env` only to report a failure, in [`throw`], where the [`ThrowMapped`] error
+//! policy picks the exception class.
 
 use jni::{
     errors::ErrorPolicy,
     jni_str,
-    objects::{Global, JByteArray, JClass, JIntArray},
+    objects::{Global, JByteArray, JClass},
     refs::Reference,
     strings::JNIString,
     sys::{jboolean, jbyteArray, jint, jintArray, jlong, jsize},
@@ -27,7 +30,14 @@ use jni::{
 use onig::Regex;
 use onig::{RegexOptions, Region, SearchOptions, Syntax};
 use onig_sys::{ONIG_OPTION_NOT_BEGIN_POSITION, ONIG_OPTION_NOT_BEGIN_STRING};
-use std::{any::Any, cell::RefCell, ffi::c_void, str, sync::OnceLock};
+use std::{
+    any::Any,
+    cell::RefCell,
+    ffi::c_void,
+    panic::{catch_unwind, AssertUnwindSafe},
+    ptr, str,
+    sync::OnceLock,
+};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -66,6 +76,9 @@ enum Error {
     #[error("byteOffset {offset} out of range [0, {length}]")]
     ByteOffsetOutOfRange { offset: i32, length: usize },
 
+    #[error("Panic happened: {0}")]
+    Panic(String),
+
     #[error("Null Pointer")]
     NullPointer,
 }
@@ -76,8 +89,17 @@ pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_createRegex<'call
     _: JClass<'caller>,
     pattern: JByteArray<'caller>,
 ) -> jlong {
-    env.with_env(|env| create_regex(env, &pattern))
-        .resolve::<ThrowMapped>()
+    // SAFETY: the JVM guarantees this pointer is the calling thread's JNI environment for the
+    // duration of the call. The body reaches JNI only through the raw vtable, so it needs no
+    // `Env` and skips what `with_env` does on every call.
+    let raw_env = env.as_raw();
+    match try_catch(|| unsafe { create_regex(raw_env, &pattern) }) {
+        Ok(regex_ptr) => regex_ptr,
+        Err(error) => {
+            throw(&mut env, error);
+            0
+        }
+    }
 }
 
 #[no_mangle]
@@ -89,18 +111,26 @@ pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_match<'caller>(
     byte_offset: jint,
     match_begin_position: jboolean,
     match_begin_string: jboolean,
-) -> JIntArray<'caller> {
-    env.with_env(|env| {
+) -> jintArray {
+    // SAFETY: see the note in createRegex.
+    let raw_env = env.as_raw();
+    let matched = try_catch(|| unsafe {
         match_pattern(
-            env,
+            raw_env,
             regex_ptr,
             string_ptr,
             byte_offset,
             match_begin_position,
             match_begin_string,
         )
-    })
-    .resolve::<ThrowMapped>()
+    });
+    match matched {
+        Ok(offsets) => offsets,
+        Err(error) => {
+            throw(&mut env, error);
+            ptr::null_mut()
+        }
+    }
 }
 
 #[no_mangle]
@@ -109,8 +139,15 @@ pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_createString<'cal
     _: JClass<'caller>,
     utf8: JByteArray<'caller>,
 ) -> jlong {
-    env.with_env(|env| create_string(env, &utf8))
-        .resolve::<ThrowMapped>()
+    // SAFETY: see the note in createRegex.
+    let raw_env = env.as_raw();
+    match try_catch(|| unsafe { create_string(raw_env, &utf8) }) {
+        Ok(string_ptr) => string_ptr,
+        Err(error) => {
+            throw(&mut env, error);
+            0
+        }
+    }
 }
 
 #[no_mangle]
@@ -120,8 +157,9 @@ pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeString<'calle
     ptr: jlong,
 ) {
     // Be careful to restore the owned type from the pointer
-    env.with_env(|_| free::<String>(ptr))
-        .resolve::<ThrowMapped>()
+    if let Err(error) = try_catch(|| free::<String>(ptr)) {
+        throw(&mut env, error);
+    }
 }
 
 #[no_mangle]
@@ -131,8 +169,9 @@ pub extern "system" fn Java_me_zolotov_oniguruma_jni_Oniguruma_freeRegex<'caller
     ptr: jlong,
 ) {
     // Be careful to restore the owned type from the pointer
-    env.with_env(|_| free::<Regex>(ptr))
-        .resolve::<ThrowMapped>()
+    if let Err(error) = try_catch(|| free::<Regex>(ptr)) {
+        throw(&mut env, error);
+    }
 }
 
 fn free<T: 'static>(ptr: i64) -> Result<()> {
@@ -146,12 +185,14 @@ fn free<T: 'static>(ptr: i64) -> Result<()> {
     }
 }
 
-fn create_regex(env: &Env, pattern: &JByteArray) -> Result<jlong> {
+/// # Safety
+///
+/// `raw_env` must be the JNI environment of the calling thread.
+unsafe fn create_regex(raw_env: *mut jni::sys::JNIEnv, pattern: &JByteArray) -> Result<jlong> {
     if pattern.is_null() {
         return Ok(0);
     }
-    // SAFETY: `pattern` is a non-null `byte[]` reference the JVM just handed us.
-    let byte_array = unsafe { copy_byte_array(env.get_raw(), pattern.as_raw()) };
+    let byte_array = copy_byte_array(raw_env, pattern.as_raw());
     // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createRegex, matching
     // the FFM binding, which hands the bytes to oniguruma without validating either. The bytes
     // go straight through to onig_new; nothing on the Rust side inspects them as text.
@@ -164,14 +205,17 @@ fn create_regex(env: &Env, pattern: &JByteArray) -> Result<jlong> {
     Ok(Box::into_raw(Box::<Regex>::new(regex)) as jlong)
 }
 
-fn match_pattern<'local>(
-    env: &Env<'local>,
+/// # Safety
+///
+/// `raw_env` must be the JNI environment of the calling thread.
+unsafe fn match_pattern(
+    raw_env: *mut jni::sys::JNIEnv,
     regex_ptr: jlong,
     string_ptr: jlong,
     byte_offset: jint,
     match_begin_position: jboolean,
     match_begin_string: jboolean,
-) -> Result<JIntArray<'local>> {
+) -> Result<jintArray> {
     // Creating a null reference is UB even if it is not used
     if regex_ptr == 0 || string_ptr == 0 {
         return Err(Error::NullPatternOrString);
@@ -225,21 +269,23 @@ fn match_pattern<'local>(
                     offsets.push(s);
                     offsets.push(e);
                 }
-                Ok(create_jni_int_array(env, offsets.as_slice()))
+                Ok(new_int_array(raw_env, offsets.as_slice()))
             })
         } else {
             // A null array reference is how a mismatch is reported to Java.
-            Ok(JIntArray::null())
+            Ok(ptr::null_mut())
         }
     })
 }
 
-fn create_string(env: &Env, utf8: &JByteArray) -> Result<jlong> {
+/// # Safety
+///
+/// `raw_env` must be the JNI environment of the calling thread.
+unsafe fn create_string(raw_env: *mut jni::sys::JNIEnv, utf8: &JByteArray) -> Result<jlong> {
     if utf8.is_null() {
         Result::<jlong>::Ok(0)
     } else {
-        // SAFETY: `utf8` is a non-null `byte[]` reference the JVM just handed us.
-        let bytes = unsafe { copy_byte_array(env.get_raw(), utf8.as_raw()) };
+        let bytes = copy_byte_array(raw_env, utf8.as_raw());
         // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createString,
         // matching the FFM binding, which copies the bytes into native memory without
         // validating either. The bytes go straight through to onig_search; nothing on the
@@ -301,16 +347,38 @@ unsafe fn new_int_array(raw_env: *mut jni::sys::JNIEnv, values: &[jint]) -> jint
     array
 }
 
-fn create_jni_int_array<'local>(env: &Env<'local>, input: &[jint]) -> JIntArray<'local> {
-    // SAFETY: `new_int_array` returns a fresh local reference to an `int[]` (or null), created in
-    // this thread's environment, which is exactly what `from_raw` requires.
-    unsafe { JIntArray::from_raw(env, new_int_array(env.get_raw(), input)) }
+/// Runs a native method body, turning a panic into an [`Error`] rather than letting it unwind
+/// into the JVM, which would abort the process.
+///
+/// `EnvUnowned::with_env` also catches panics, but only as part of materializing an `Env`: it
+/// pushes and pops the attach-guard nesting level in thread-local storage, calls `get_java_vm`
+/// and builds an `EnvOutcome`, all of which cost more than the JNI work in these methods. The
+/// bodies here reach JNI through the raw vtable and need no `Env` at all unless they fail, so
+/// the `Env` is left to [`throw`] on the cold path.
+///
+/// `AssertUnwindSafe` is sound here because a panic leaves nothing observable behind: the only
+/// state the bodies share between calls is the thread-local `Region` and offsets buffer, whose
+/// `RefCell` guards are released while unwinding, and both are cleared before use on the next
+/// call.
+fn try_catch<T>(body: impl FnOnce() -> Result<T>) -> Result<T> {
+    catch_unwind(AssertUnwindSafe(body))
+        .unwrap_or_else(|payload| Err(Error::Panic(describe_panic(&*payload))))
+}
+
+/// Throws `error` as a Java exception.
+///
+/// This is the only path that needs a real `Env`, so it is the only one that pays for
+/// [`EnvUnowned::with_env`]. Handing the error to the closure lets [`ThrowMapped`] pick the
+/// exception class, exactly as it does for a failure inside `with_env` itself.
+fn throw(env: &mut EnvUnowned, error: Error) {
+    env.with_env(|_| Err::<(), Error>(error))
+        .resolve::<ThrowMapped>()
 }
 
 /// Turns native method failures into Java exceptions.
 ///
-/// `EnvUnowned::with_env` already wraps the closure in a `catch_unwind`, so a panic arrives here
-/// as [`ErrorPolicy::on_panic`] instead of having to be caught by hand.
+/// A panic in a native method body is caught by [`try_catch`] and arrives as [`Error::Panic`], so
+/// [`ErrorPolicy::on_panic`] only runs in the far rarer case of a panic inside [`throw`] itself.
 struct ThrowMapped;
 
 impl<T: Default> ErrorPolicy<T, Error> for ThrowMapped {
