@@ -18,16 +18,16 @@
 use jni::{
     errors::ErrorPolicy,
     jni_str,
-    objects::{Global, JByteArray, JClass, JIntArray, ReleaseMode},
+    objects::{Global, JByteArray, JClass, JIntArray},
     refs::Reference,
     strings::JNIString,
-    sys::{jboolean, jint, jlong},
+    sys::{jboolean, jint, jlong, jsize},
     Env, EnvUnowned,
 };
 use onig::Regex;
 use onig::{RegexOptions, Region, SearchOptions, Syntax};
 use onig_sys::{ONIG_OPTION_NOT_BEGIN_POSITION, ONIG_OPTION_NOT_BEGIN_STRING};
-use std::{any::Any, cell::RefCell, ffi::c_void, slice, str, sync::OnceLock};
+use std::{any::Any, cell::RefCell, ffi::c_void, str, sync::OnceLock};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -237,17 +237,33 @@ fn create_string(env: &Env, utf8: &JByteArray) -> Result<jlong> {
     if utf8.is_null() {
         Result::<jlong>::Ok(0)
     } else {
+        let len = utf8.len(env)?;
+        let mut bytes: Vec<u8> = Vec::with_capacity(len);
         unsafe {
-            // Critical: pins the Java heap object without copying (GC is suspended for duration).
-            let elements = utf8.get_elements_critical(env, ReleaseMode::NoCopyBack)?;
-            let slice = slice::from_raw_parts(elements.as_ptr() as *const u8, elements.len());
+            // GetByteArrayRegion copies straight into the Vec's spare capacity. Compared to
+            // GetPrimitiveArrayCritical this needs no critical section (nothing pins the Java
+            // heap, so the GC is never blocked) and one fewer JNI transition. Called through the
+            // raw vtable because JByteArray::get_region wants an initialized &mut [jbyte] (a
+            // zeroing pass the copy would immediately overwrite) and follows up with an
+            // ExceptionCheck call that is pointless here: the only exception this JNI function
+            // can raise is ArrayIndexOutOfBounds, and [0, len) is exact by construction since
+            // Java arrays cannot resize after GetArrayLength.
+            let raw_env = env.get_raw();
+            let interface = *raw_env;
+            ((*interface).v1_1.GetByteArrayRegion)(
+                raw_env,
+                utf8.as_raw(),
+                0,
+                len as jsize,
+                bytes.as_mut_ptr().cast(),
+            );
+            bytes.set_len(len);
             // SAFETY: valid UTF-8 is the documented caller contract of Oniguruma.createString,
             // matching the FFM binding, which copies the bytes into native memory without
             // validating either. The bytes go straight through to onig_search; nothing on the
             // Rust side inspects them as text. Skipping validation keeps createString a single
             // copy, which is most of its cost for large texts.
-            let str = String::from_utf8_unchecked(slice.to_vec());
-            drop(elements); // Release critical section before any further JNI calls.
+            let str = String::from_utf8_unchecked(bytes);
             Ok(Box::into_raw(Box::<String>::new(str)) as jlong)
         }
     }
