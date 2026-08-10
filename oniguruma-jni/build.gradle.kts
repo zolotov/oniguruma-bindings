@@ -96,6 +96,8 @@ tasks.named("jmhRunBytecodeGenerator") {
     enabled = false
 }
 
+val jmhResultsFile = layout.buildDirectory.file("results/jmh/results.json")
+
 jmh {
     // Keep this lazy: calling .get() here resolved (and downloaded) the toolchain during
     // configuration of every build, so tasks that never run JMH -- including the
@@ -118,7 +120,20 @@ jmh {
     iterations = if (quick) 3 else 5
     timeOnIteration = if (quick) "500ms" else "1s"
     resultFormat = "JSON"
-    resultsFile = layout.buildDirectory.file("results/jmh/results.json")
+    resultsFile = jmhResultsFile
+}
+
+// :benchmarks aggregates both suites into one report. Isolated Projects forbids it from reading
+// this project's layout, so hand the file over as an artifact instead of a path it can guess.
+configurations.consumable(JMH_RESULTS_ELEMENTS) {
+    attributes {
+        attribute(JMH_RESULTS_ATTRIBUTE, JMH_RESULTS_JSON)
+    }
+    outgoing {
+        artifact(jmhResultsFile) {
+            builtBy(tasks.named("jmh"))
+        }
+    }
 }
 
 java {

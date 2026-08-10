@@ -73,14 +73,14 @@ jobs:
           MODULE: ${{ inputs.module }}
           VERSION: ${{ inputs.version }}
         shell: bash
-        run: ./gradlew ":${MODULE}:patchChangelog" ":${MODULE}:updateReadmeVersion" "-Pversion=${VERSION}" --no-configuration-cache
+        run: ./gradlew ":${MODULE}:patchChangelog" ":${MODULE}:updateReadmeVersion" "-Pversion=${VERSION}" --no-configuration-cache --no-isolated-projects
 
       - name: Extract the release notes
         env:
           MODULE: ${{ inputs.module }}
           VERSION: ${{ inputs.version }}
         shell: bash
-        run: ./gradlew ":${MODULE}:getChangelog" "--project-version=${VERSION}" "--no-header" "--no-empty-sections" "-Pversion=${VERSION}" --no-configuration-cache
+        run: ./gradlew ":${MODULE}:getChangelog" "--project-version=${VERSION}" "--no-header" "--no-empty-sections" "-Pversion=${VERSION}" --no-configuration-cache --no-isolated-projects
 
       - name: Publish
         env:
@@ -98,7 +98,7 @@ jobs:
           MODULE: ${{ inputs.module }}
           VERSION: ${{ inputs.version }}
         shell: bash
-        run: ./gradlew ":${MODULE}:check" ":${MODULE}:publishAndReleaseToMavenCentral" "-Pversion=${VERSION}" --no-configuration-cache
+        run: ./gradlew ":${MODULE}:check" ":${MODULE}:publishAndReleaseToMavenCentral" "-Pversion=${VERSION}" --no-configuration-cache --no-isolated-projects
 
       - name: Commit and push change log
         id: changelog-commit

@@ -66,4 +66,4 @@ jobs:
           MODULE: ${{ inputs.module }}
           VERSION: ${{ inputs.version }}
         shell: bash
-        run: ./gradlew ":${MODULE}:check" ":${MODULE}:publishAllPublicationsToMavenCentralRepository" "-Pversion=${VERSION}-SNAPSHOT" --no-configuration-cache
+        run: ./gradlew ":${MODULE}:check" ":${MODULE}:publishAllPublicationsToMavenCentralRepository" "-Pversion=${VERSION}-SNAPSHOT" --no-configuration-cache --no-isolated-projects
