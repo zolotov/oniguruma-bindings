@@ -127,7 +127,7 @@ jobs:
           path: ${{ inputs.module }}/build/target
 
   build-native-mac:
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout sources
