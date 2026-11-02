@@ -10,5 +10,5 @@ junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher
 
 [plugins]
 changelog = { id = "org.jetbrains.changelog", version = "2.5.0" }
-jmh = { id = "me.champeau.jmh", version = "0.7.3" }
+jmh = { id = "me.champeau.jmh", version = "0.7.4" }
 publish = { id = "com.vanniktech.maven.publish", version = "0.37.0" }
